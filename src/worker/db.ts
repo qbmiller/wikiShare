@@ -1,4 +1,4 @@
-import { newId, nowSeconds } from './crypto.js'
+import { nowSeconds } from './crypto.js'
 import type { Env, FileRecord, FolderRecord, SessionUser, UserRecord } from './types.js'
 
 export async function audit(
@@ -13,22 +13,26 @@ export async function audit(
     detail?: unknown
   },
 ): Promise<void> {
-  await env.DB.prepare(
-    `insert into audit_logs(id, user_id, action, target_type, target_id, ip, user_agent, detail, created_at)
-     values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      newId(),
-      input.userId ?? null,
-      input.action,
-      input.targetType ?? null,
-      input.targetId ?? null,
-      input.ip ?? null,
-      input.userAgent ?? null,
-      input.detail == null ? null : JSON.stringify(input.detail),
-      nowSeconds(),
-    )
-    .run()
+  void env
+  void input
+
+  // 暂停记录行为动作；审计页面和查询接口保留，后续需要时恢复下面的写入逻辑即可。
+  // await env.DB.prepare(
+  //   `insert into audit_logs(id, user_id, action, target_type, target_id, ip, user_agent, detail, created_at)
+  //    values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  // )
+  //   .bind(
+  //     newId(),
+  //     input.userId ?? null,
+  //     input.action,
+  //     input.targetType ?? null,
+  //     input.targetId ?? null,
+  //     input.ip ?? null,
+  //     input.userAgent ?? null,
+  //     input.detail == null ? null : JSON.stringify(input.detail),
+  //     nowSeconds(),
+  //   )
+  //   .run()
 }
 
 export async function countUsers(env: Env): Promise<number> {
