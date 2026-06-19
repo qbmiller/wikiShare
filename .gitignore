@@ -1,7 +1,8 @@
 node_modules
 dist
 .wrangler
+.tmp-tests
 .dev.vars
+wrangler.local.toml
 *.local
 .DS_Store
-

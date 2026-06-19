@@ -7,7 +7,9 @@
     "dev": "vite --host 127.0.0.1",
     "dev:worker": "wrangler dev",
     "build": "vue-tsc --noEmit && tsc -p tsconfig.worker.json --noEmit && vite build",
+    "test": "tsc -p tsconfig.test.json && node .tmp-tests/scripts/test.mjs",
     "typecheck": "vue-tsc --noEmit && tsc -p tsconfig.worker.json --noEmit",
+    "cf:prepare": "node scripts/prepare-cloudflare.mjs",
     "deploy": "npm run build && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply cfshare-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply cfshare-db --remote"
@@ -22,6 +24,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20251219.0",
+    "@types/node": "^25.0.2",
     "@vitejs/plugin-vue": "^6.0.4",
     "typescript": "^5.9.3",
     "vite": "^7.2.7",
@@ -29,4 +32,3 @@
     "wrangler": "^4.55.0"
   }
 }
-

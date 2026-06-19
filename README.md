@@ -59,20 +59,41 @@ npm run dev
 
 然后更新 `wrangler.toml` 中的 `database_id`。
 
+也可以直接执行：
+
+```bash
+npm run cf:prepare
+```
+
+该命令会通过 Wrangler 创建或复用：
+
+- D1 数据库：`cfshare-db`
+- R2 bucket：`cfshare-pdfs`
+
+并生成 `wrangler.local.toml`。这个文件包含真实 D1 database id，不提交到 git。
+
 配置 secret：
 
 ```bash
-npx wrangler secret put SESSION_SECRET
+npx wrangler secret put SESSION_SECRET --config wrangler.local.toml
 ```
 
 远程应用迁移：
 
 ```bash
-npm run db:migrate:remote
+npx wrangler d1 migrations apply cfshare-db --remote --config wrangler.local.toml
 ```
 
 构建并部署：
 
 ```bash
-npm run deploy
+npm run build
+npx wrangler deploy --config wrangler.local.toml
+```
+
+## 验证
+
+```bash
+npm run test
+npm run build
 ```
