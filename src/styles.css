@@ -599,6 +599,7 @@ select {
 
 .reader-controls {
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .reader-format {
@@ -618,6 +619,64 @@ select {
   background: #2a302d;
 }
 
+.canvas-stage.scroll-mode {
+  align-content: start;
+}
+
+.page-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-jump input {
+  width: 76px;
+  min-height: 36px;
+}
+
+.segmented-control {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid #cfc5b3;
+  border-radius: 6px;
+  background: #fffdfa;
+}
+
+.segmented-control button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-right: 1px solid #cfc5b3;
+  padding: 0 10px;
+  background: transparent;
+  color: #536158;
+}
+
+.segmented-control button:last-child {
+  border-right: 0;
+}
+
+.segmented-control button.active {
+  background: #1f6f54;
+  color: #ffffff;
+}
+
+.scroll-pages {
+  display: grid;
+  width: 100%;
+  justify-items: center;
+  gap: 18px;
+}
+
+.scroll-pages canvas,
+.canvas-stage > canvas {
+  max-width: 100%;
+  height: auto;
+  background: #ffffff;
+}
+
 .markdown-stage {
   position: relative;
   min-height: calc(100vh - 150px);
@@ -626,6 +685,59 @@ select {
   border-radius: 8px;
   padding: 28px;
   background: #fffdfa;
+}
+
+.markdown-reader-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 16px;
+  align-items: start;
+}
+
+.markdown-outline {
+  position: sticky;
+  top: 86px;
+  display: grid;
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  border: 1px solid #d9d1c2;
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 253, 248, 0.95);
+  box-shadow: 0 12px 36px rgba(45, 37, 25, 0.08);
+}
+
+.markdown-outline h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.markdown-outline button {
+  width: 100%;
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: transparent;
+  color: #536158;
+  text-align: left;
+}
+
+.markdown-outline button:hover {
+  background: #e4efe9;
+  color: #15201b;
+}
+
+.markdown-outline .level-2 {
+  padding-left: 18px;
+}
+
+.markdown-outline .level-3,
+.markdown-outline .level-4,
+.markdown-outline .level-5,
+.markdown-outline .level-6 {
+  padding-left: 30px;
+  font-size: 13px;
 }
 
 .markdown-body {
@@ -759,9 +871,16 @@ canvas {
 
   .split-layout,
   .browse-layout,
+  .markdown-reader-layout,
   .user-form,
   .inline-form {
     grid-template-columns: 1fr;
+  }
+
+  .markdown-outline {
+    position: static;
+    max-height: 220px;
+    order: -1;
   }
 
   .browse-header {

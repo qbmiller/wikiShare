@@ -7,7 +7,14 @@ const props = defineProps<{
   contentUrl: string
 }>()
 
+interface MarkdownHeading {
+  id: string
+  level: number
+  text: string
+}
+
 const markdownHtml = ref('')
+const headings = ref<MarkdownHeading[]>([])
 const loading = ref(true)
 const error = ref('')
 
@@ -17,7 +24,9 @@ onMounted(async () => {
     if (!response.ok) {
       throw new Error(`Markdown 加载失败：${response.status}`)
     }
-    markdownHtml.value = renderMarkdown(await response.text())
+    const rendered = renderMarkdown(await response.text())
+    markdownHtml.value = rendered.html
+    headings.value = rendered.headings
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Markdown 加载失败'
   } finally {
@@ -25,9 +34,11 @@ onMounted(async () => {
   }
 })
 
-function renderMarkdown(markdown: string): string {
+function renderMarkdown(markdown: string): { html: string; headings: MarkdownHeading[] } {
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
   const html: string[] = []
+  const headings: MarkdownHeading[] = []
+  const headingIds = new Map<string, number>()
   let paragraph: string[] = []
   let inList = false
 
@@ -59,7 +70,10 @@ function renderMarkdown(markdown: string): string {
       flushParagraph()
       closeList()
       const level = heading[1].length
-      html.push(`<h${level}>${renderInline(heading[2])}</h${level}>`)
+      const text = heading[2].trim()
+      const id = createHeadingId(text, headingIds)
+      headings.push({ id, level, text })
+      html.push(`<h${level} id="${id}">${renderInline(text)}</h${level}>`)
       continue
     }
 
@@ -79,7 +93,18 @@ function renderMarkdown(markdown: string): string {
 
   flushParagraph()
   closeList()
-  return html.join('')
+  return { html: html.join(''), headings }
+}
+
+function createHeadingId(text: string, headingIds: Map<string, number>): string {
+  const base = text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '') || 'heading'
+  const count = headingIds.get(base) ?? 0
+  headingIds.set(base, count + 1)
+  return count === 0 ? base : `${base}-${count + 1}`
 }
 
 function renderInline(value: string): string {
@@ -97,6 +122,10 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
 }
+
+function scrollToHeading(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 </script>
 
 <template>
@@ -104,9 +133,24 @@ function escapeHtml(value: string): string {
     <p v-if="loading" class="empty-state">正在加载 Markdown...</p>
     <p v-if="error" class="form-message">{{ error }}</p>
 
-    <article class="markdown-stage">
-      <div class="markdown-body" v-html="markdownHtml"></div>
-      <div class="watermark">CFShare · 当前账号 · {{ new Date().toLocaleString('zh-CN') }}</div>
-    </article>
+    <div class="markdown-reader-layout">
+      <article class="markdown-stage">
+        <div class="markdown-body" v-html="markdownHtml"></div>
+        <div class="watermark">CFShare · 当前账号 · {{ new Date().toLocaleString('zh-CN') }}</div>
+      </article>
+
+      <aside v-if="headings.length" class="markdown-outline" aria-label="文章结构">
+        <h2>文章结构</h2>
+        <button
+          v-for="heading in headings"
+          :key="heading.id"
+          :class="`level-${heading.level}`"
+          type="button"
+          @click="scrollToHeading(heading.id)"
+        >
+          {{ heading.text }}
+        </button>
+      </aside>
+    </div>
   </section>
 </template>
