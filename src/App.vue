@@ -34,7 +34,7 @@ watch(
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'sidebar-collapsed': auth.user && sidebarCollapsed }">
+  <div class="app-shell" :class="{ 'sidebar-collapsed': auth.user && sidebarCollapsed, 'is-public': !auth.user }">
     <aside v-if="auth.user" class="sidebar" :class="{ 'is-collapsed': sidebarCollapsed }">
       <div class="brand">
         <div class="brand-mark">CF</div>
