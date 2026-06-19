@@ -254,10 +254,51 @@ select {
   color: #17231d;
 }
 
-.folder-list,
 .file-table {
   display: grid;
   gap: 8px;
+}
+
+.folder-list {
+  overflow: hidden;
+}
+
+.tree-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree-children {
+  position: relative;
+  margin-top: 8px;
+  padding-left: 24px;
+}
+
+.tree-children::before {
+  position: absolute;
+  top: -8px;
+  bottom: 21px;
+  left: 8px;
+  width: 1px;
+  background: #d7cdbc;
+  content: "";
+}
+
+.tree-item {
+  position: relative;
+}
+
+.tree-children > .tree-item::before {
+  position: absolute;
+  top: 21px;
+  left: -16px;
+  width: 16px;
+  height: 1px;
+  background: #d7cdbc;
+  content: "";
 }
 
 .folder-row {
@@ -272,6 +313,27 @@ select {
   background: #fffdfa;
   color: #15201b;
   text-align: left;
+}
+
+.folder-name {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-name svg {
+  flex: 0 0 auto;
+  color: #1f6f54;
+}
+
+.folder-row small {
+  flex: 0 0 auto;
+  margin-left: 12px;
 }
 
 .folder-row.active {

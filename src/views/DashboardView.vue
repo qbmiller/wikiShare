@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { FolderPlus, Upload } from 'lucide-vue-next'
+import { Folder, FolderPlus, Upload } from 'lucide-vue-next'
 import { api } from '@/api'
 import { dateInputToEpoch, epochToDateInput, formatDate } from '@/date'
-import type { Folder, PdfFile } from '@/types'
+import type { Folder as FolderItem, PdfFile } from '@/types'
 
 const router = useRouter()
-const folders = ref<Folder[]>([])
+const folders = ref<FolderItem[]>([])
 const files = ref<PdfFile[]>([])
 const selectedFolderId = ref<string>('')
 const newFolderName = ref('')
@@ -19,14 +19,42 @@ const loading = ref(false)
 const error = ref('')
 const maxUploadBytes = 100 * 1024 * 1024
 
+type FolderTreeNode = FolderItem & {
+  children: FolderTreeNode[]
+}
+
 const selectedFolder = computed(() => folders.value.find((folder) => folder.id === selectedFolderId.value) ?? null)
 const parentOptions = computed(() => folders.value.filter((folder) => folder.depth < 3))
+const folderTree = computed(() => {
+  const nodeById = new Map<string, FolderTreeNode>()
+  const roots: FolderTreeNode[] = []
+
+  for (const folder of folders.value) {
+    nodeById.set(folder.id, { ...folder, children: [] })
+  }
+
+  for (const folder of folders.value) {
+    const node = nodeById.get(folder.id)
+    if (!node) {
+      continue
+    }
+
+    const parent = folder.parent_id ? nodeById.get(folder.parent_id) : null
+    if (parent) {
+      parent.children.push(node)
+    } else {
+      roots.push(node)
+    }
+  }
+
+  return roots
+})
 
 onMounted(loadFolders)
 
 async function loadFolders() {
   error.value = ''
-  folders.value = await api<Folder[]>('/api/folders/tree')
+  folders.value = await api<FolderItem[]>('/api/folders/tree')
   if (!selectedFolderId.value && folders.value.length > 0) {
     selectedFolderId.value = folders.value[0].id
     selectedFolderExpiresAt.value = epochToDateInput(folders.value[0].expires_at)
@@ -127,7 +155,7 @@ async function trashFile(file: PdfFile) {
   await loadFiles()
 }
 
-async function trashFolder(folder: Folder) {
+async function trashFolder(folder: FolderItem) {
   await api(`/api/folders/${folder.id}/trash`, { method: 'POST' })
   if (selectedFolderId.value === folder.id) {
     selectedFolderId.value = ''
@@ -156,7 +184,7 @@ function openDatePicker(event: MouseEvent) {
   input.showPicker?.()
 }
 
-async function selectFolder(folder: Folder) {
+async function selectFolder(folder: FolderItem) {
   selectedFolderId.value = folder.id
   selectedFolderExpiresAt.value = epochToDateInput(folder.expires_at)
   await loadFiles()
@@ -203,16 +231,53 @@ async function selectFolder(folder: Folder) {
         </form>
 
         <div class="folder-list">
-          <button
-            v-for="folder in folders"
-            :key="folder.id"
-            class="folder-row"
-            :class="{ active: folder.id === selectedFolderId }"
-            @click="selectFolder(folder)"
-          >
-            <span>{{ '　'.repeat(folder.depth - 1) }}{{ folder.name }}</span>
-            <small>{{ formatDate(folder.expires_at) }}</small>
-          </button>
+          <ul class="tree-list">
+            <li v-for="folder in folderTree" :key="folder.id" class="tree-item">
+              <button
+                class="folder-row"
+                :class="{ active: folder.id === selectedFolderId }"
+                @click="selectFolder(folder)"
+              >
+                <span class="folder-name">
+                  <Folder :size="16" />
+                  {{ folder.name }}
+                </span>
+                <small>{{ formatDate(folder.expires_at) }}</small>
+              </button>
+
+              <ul v-if="folder.children.length" class="tree-list tree-children">
+                <li v-for="child in folder.children" :key="child.id" class="tree-item">
+                  <button
+                    class="folder-row"
+                    :class="{ active: child.id === selectedFolderId }"
+                    @click="selectFolder(child)"
+                  >
+                    <span class="folder-name">
+                      <Folder :size="16" />
+                      {{ child.name }}
+                    </span>
+                    <small>{{ formatDate(child.expires_at) }}</small>
+                  </button>
+
+                  <ul v-if="child.children.length" class="tree-list tree-children">
+                    <li v-for="grandchild in child.children" :key="grandchild.id" class="tree-item">
+                      <button
+                        class="folder-row"
+                        :class="{ active: grandchild.id === selectedFolderId }"
+                        @click="selectFolder(grandchild)"
+                      >
+                        <span class="folder-name">
+                          <Folder :size="16" />
+                          {{ grandchild.name }}
+                        </span>
+                        <small>{{ formatDate(grandchild.expires_at) }}</small>
+                      </button>
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
         </div>
       </section>
 
