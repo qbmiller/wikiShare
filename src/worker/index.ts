@@ -179,7 +179,14 @@ app.post('/api/users/:id/reset-password', requireAdmin, async (c) => {
 })
 
 app.get('/api/folders/tree', async (c) => {
-  const folders = await c.env.DB.prepare('select * from folders where trashed_at is null order by depth, name').all()
+  const folders = await c.env.DB.prepare(
+    `select * from folders
+     where trashed_at is null
+       and (expires_at is null or expires_at > ?)
+     order by depth, name`,
+  )
+    .bind(nowSeconds())
+    .all()
   return c.json(folders.results)
 })
 
@@ -225,15 +232,14 @@ app.patch('/api/folders/:id', async (c) => {
 
 app.post('/api/folders/:id/trash', async (c) => {
   const id = c.req.param('id')
-  await trashFolder(c.env, id)
+  await trashFolderTree(c.env, id)
   await audit(c.env, { userId: c.get('user').id, action: 'folder_trashed', targetType: 'folder', targetId: id })
   return c.json({ ok: true })
 })
 
 app.post('/api/folders/:id/restore', async (c) => {
   const id = c.req.param('id')
-  await c.env.DB.prepare('update folders set trashed_at = null where id = ?').bind(id).run()
-  await c.env.DB.prepare('update files set trashed_at = null where folder_id = ? and deleted_at is null').bind(id).run()
+  await restoreFolderTree(c.env, id)
   await audit(c.env, { userId: c.get('user').id, action: 'folder_restored', targetType: 'folder', targetId: id })
   return c.json({ ok: true })
 })
@@ -465,15 +471,14 @@ function isPdf(bytes: ArrayBuffer, mimeType: string): boolean {
   return header === '%PDF-' && (!mimeType || mimeType === 'application/pdf')
 }
 
-async function trashFolder(env: Env, folderId: string): Promise<void> {
-  const now = nowSeconds()
-  await env.DB.prepare('update folders set trashed_at = ? where id = ?').bind(now, folderId).run()
+export async function trashFolderTree(env: Env, folderId: string, at = nowSeconds()): Promise<void> {
+  await env.DB.prepare('update folders set trashed_at = ? where id = ?').bind(at, folderId).run()
   await env.DB.prepare(
     `update folders set trashed_at = ?
      where parent_id = ?
         or parent_id in (select id from folders where parent_id = ?)`,
   )
-    .bind(now, folderId, folderId)
+    .bind(at, folderId, folderId)
     .run()
   await env.DB.prepare(
     `update files set trashed_at = ?
@@ -484,7 +489,29 @@ async function trashFolder(env: Env, folderId: string): Promise<void> {
          or folder_id in (select id from folders where parent_id in (select id from folders where parent_id = ?))
        )`,
   )
-    .bind(now, folderId, folderId, folderId)
+    .bind(at, folderId, folderId, folderId)
+    .run()
+}
+
+export async function restoreFolderTree(env: Env, folderId: string): Promise<void> {
+  await env.DB.prepare('update folders set trashed_at = null where id = ?').bind(folderId).run()
+  await env.DB.prepare(
+    `update folders set trashed_at = null
+     where parent_id = ?
+        or parent_id in (select id from folders where parent_id = ?)`,
+  )
+    .bind(folderId, folderId)
+    .run()
+  await env.DB.prepare(
+    `update files set trashed_at = null
+     where deleted_at is null
+       and (
+         folder_id = ?
+         or folder_id in (select id from folders where parent_id = ?)
+         or folder_id in (select id from folders where parent_id in (select id from folders where parent_id = ?))
+       )`,
+  )
+    .bind(folderId, folderId, folderId)
     .run()
 }
 
@@ -494,7 +521,7 @@ async function expireContent(env: Env): Promise<void> {
     .bind(now)
     .all<{ id: string }>()
   for (const folder of expiredFolders.results) {
-    await trashFolder(env, folder.id)
+    await trashFolderTree(env, folder.id)
     await audit(env, { action: 'folder_expired', targetType: 'folder', targetId: folder.id })
   }
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { dateInputToEpoch, epochToDateInput } from '../src/date.js'
 import { getEffectiveFolderExpiration, isFileReadable, isFolderAvailable } from '../src/worker/db.js'
+import { restoreFolderTree, trashFolderTree } from '../src/worker/index.js'
 import { parseRange } from '../src/worker/range.js'
 import type { Env, FileRecord, FolderRecord } from '../src/worker/types.js'
 
@@ -47,6 +48,28 @@ assert.equal(await isFileReadable(env, trashedFile, now), false)
 assert.equal(await isFileReadable(env, deletedFile, now), false)
 assert.equal(await isFileReadable(env, folderExpiredFile, now), false)
 
+const trashEnv = mockEnv(folders)
+await trashFolderTree(trashEnv, 'dated', now)
+assert.deepEqual(trashEnv.__runs, [
+  { query: 'update folders set trashed_at = ? where id = ?', values: [now, 'dated'] },
+  { query: 'update folders set trashed_at = ? where parent_id = ? or parent_id in (select id from folders where parent_id = ?)', values: [now, 'dated', 'dated'] },
+  {
+    query: 'update files set trashed_at = ? where deleted_at is null and ( folder_id = ? or folder_id in (select id from folders where parent_id = ?) or folder_id in (select id from folders where parent_id in (select id from folders where parent_id = ?)) )',
+    values: [now, 'dated', 'dated', 'dated'],
+  },
+])
+
+const restoreEnv = mockEnv(folders)
+await restoreFolderTree(restoreEnv, 'dated')
+assert.deepEqual(restoreEnv.__runs, [
+  { query: 'update folders set trashed_at = null where id = ?', values: ['dated'] },
+  { query: 'update folders set trashed_at = null where parent_id = ? or parent_id in (select id from folders where parent_id = ?)', values: ['dated', 'dated'] },
+  {
+    query: 'update files set trashed_at = null where deleted_at is null and ( folder_id = ? or folder_id in (select id from folders where parent_id = ?) or folder_id in (select id from folders where parent_id in (select id from folders where parent_id = ?)) )',
+    values: ['dated', 'dated', 'dated'],
+  },
+])
+
 console.log('基础逻辑测试通过')
 
 function folder(input: Partial<FolderRecord> & Pick<FolderRecord, 'id' | 'parent_id' | 'depth'>): FolderRecord {
@@ -77,40 +100,17 @@ function file(input: Partial<FileRecord> & Pick<FileRecord, 'folder_id'>): FileR
   }
 }
 
-function mockEnv(folders: Map<string, FolderRecord>): Env {
+interface MockEnv extends Env {
+  __runs: Array<{ query: string; values: unknown[] }>
+}
+
+function mockEnv(folders: Map<string, FolderRecord>): MockEnv {
+  const runs: Array<{ query: string; values: unknown[] }> = []
   return {
+    __runs: runs,
     DB: {
       prepare(query: string) {
-        return {
-          bind(id: string) {
-            return {
-              async first<T>() {
-                if (query.includes('from folders')) {
-                  return (folders.get(id) ?? null) as T | null
-                }
-                throw new Error(`未模拟的 first 查询：${query}`)
-              },
-              async run() {
-                throw new Error(`未模拟的 run 查询：${query}`)
-              },
-              async all() {
-                throw new Error(`未模拟的 all 查询：${query}`)
-              },
-              bind() {
-                throw new Error('不支持链式 bind')
-              },
-            }
-          },
-          async first() {
-            throw new Error(`未模拟的 first 查询：${query}`)
-          },
-          async run() {
-            throw new Error(`未模拟的 run 查询：${query}`)
-          },
-          async all() {
-            throw new Error(`未模拟的 all 查询：${query}`)
-          },
-        }
+        return statement(query, folders, runs)
       },
       async batch() {
         throw new Error('未模拟 batch')
@@ -119,4 +119,29 @@ function mockEnv(folders: Map<string, FolderRecord>): Env {
     PDF_BUCKET: {} as Env['PDF_BUCKET'],
     ASSETS: {} as Env['ASSETS'],
   }
+}
+
+function statement(query: string, folders: Map<string, FolderRecord>, runs: Array<{ query: string; values: unknown[] }>, values: unknown[] = []) {
+  return {
+    bind(...nextValues: unknown[]) {
+      return statement(query, folders, runs, nextValues)
+    },
+    async first<T>() {
+      if (query.includes('from folders')) {
+        return (folders.get(String(values[0])) ?? null) as T | null
+      }
+      throw new Error(`未模拟的 first 查询：${query}`)
+    },
+    async run() {
+      runs.push({ query: normalizeSql(query), values })
+      return { results: [], success: true as const, meta: {} }
+    },
+    async all() {
+      throw new Error(`未模拟的 all 查询：${query}`)
+    },
+  }
+}
+
+function normalizeSql(query: string): string {
+  return query.replace(/\s+/g, ' ').trim()
 }
