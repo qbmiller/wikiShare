@@ -4,11 +4,11 @@ import { useRouter } from 'vue-router'
 import { Folder, FolderPlus, Upload } from 'lucide-vue-next'
 import { api } from '@/api'
 import { dateInputToEpoch, epochToDateInput, formatDate } from '@/date'
-import type { Folder as FolderItem, PdfFile } from '@/types'
+import type { Folder as FolderItem, SharedFile } from '@/types'
 
 const router = useRouter()
 const folders = ref<FolderItem[]>([])
-const files = ref<PdfFile[]>([])
+const files = ref<SharedFile[]>([])
 const selectedFolderId = ref<string>('')
 const newFolderName = ref('')
 const newFolderParentId = ref<string>('')
@@ -18,6 +18,27 @@ const uploadFile = ref<File | null>(null)
 const loading = ref(false)
 const error = ref('')
 const maxUploadBytes = 100 * 1024 * 1024
+const acceptedFileTypes = [
+  'application/pdf',
+  'text/markdown',
+  'text/x-markdown',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.pdf',
+  '.md',
+  '.markdown',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.gif',
+  '.ppt',
+  '.pptx',
+].join(',')
 
 type FolderTreeNode = FolderItem & {
   children: FolderTreeNode[]
@@ -67,7 +88,7 @@ async function loadFiles() {
     files.value = []
     return
   }
-  files.value = await api<PdfFile[]>(`/api/folders/${selectedFolderId.value}/files`)
+  files.value = await api<SharedFile[]>(`/api/folders/${selectedFolderId.value}/files`)
 }
 
 async function createFolder() {
@@ -109,7 +130,7 @@ async function updateSelectedFolderExpiration() {
   await loadFolders()
 }
 
-async function updateFileExpiration(file: PdfFile, event: Event) {
+async function updateFileExpiration(file: SharedFile, event: Event) {
   const input = event.target as HTMLInputElement
   await api(`/api/files/${file.id}`, {
     method: 'PATCH',
@@ -126,7 +147,7 @@ async function upload() {
     return
   }
   if (uploadFile.value.size > maxUploadBytes) {
-    error.value = `PDF 文件不能超过 ${formatSize(maxUploadBytes)}。`
+    error.value = `单个文件不能超过 ${formatSize(maxUploadBytes)}。`
     return
   }
 
@@ -150,7 +171,7 @@ async function upload() {
   }
 }
 
-async function trashFile(file: PdfFile) {
+async function trashFile(file: SharedFile) {
   await api(`/api/files/${file.id}/trash`, { method: 'POST' })
   await loadFiles()
 }
@@ -175,8 +196,28 @@ function setUpload(event: Event) {
   const input = event.target as HTMLInputElement
   uploadFile.value = input.files?.[0] ?? null
   if (uploadFile.value && uploadFile.value.size > maxUploadBytes) {
-    error.value = `PDF 文件不能超过 ${formatSize(maxUploadBytes)}。`
+    error.value = `单个文件不能超过 ${formatSize(maxUploadBytes)}。`
   }
+}
+
+function formatFileKind(file: SharedFile): string {
+  if (file.mime_type.startsWith('text/markdown')) {
+    return 'Markdown'
+  }
+  if (file.mime_type === 'application/pdf') {
+    return 'PDF'
+  }
+  if (file.mime_type.startsWith('image/')) {
+    return '图片'
+  }
+  if (isPresentationFile(file)) {
+    return 'PPT'
+  }
+  return '文件'
+}
+
+function isPresentationFile(file: SharedFile): boolean {
+  return file.mime_type === 'application/vnd.ms-powerpoint' || file.mime_type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 }
 
 function openDatePicker(event: MouseEvent) {
@@ -196,7 +237,7 @@ async function selectFolder(folder: FolderItem) {
     <header class="page-header">
       <div>
         <p class="eyebrow">文件库</p>
-        <h1>PDF 在线阅读</h1>
+        <h1>文档在线阅读</h1>
       </div>
     </header>
 
@@ -285,7 +326,7 @@ async function selectFolder(folder: FolderItem) {
         <div class="panel-title">
           <div>
             <h2>{{ selectedFolder?.name ?? '请选择文件夹' }}</h2>
-            <span>{{ selectedFolder ? `有效期：${formatDate(selectedFolder.expires_at)}` : '选择文件夹后上传 PDF' }}</span>
+            <span>{{ selectedFolder ? `有效期：${formatDate(selectedFolder.expires_at)}` : '选择文件夹后上传文档' }}</span>
           </div>
           <button v-if="selectedFolder" class="danger-button" type="button" @click="trashFolder(selectedFolder)">移入回收站</button>
         </div>
@@ -302,12 +343,12 @@ async function selectFolder(folder: FolderItem) {
         </form>
 
         <form class="upload-bar" @submit.prevent="upload">
-          <input type="file" accept="application/pdf" @change="setUpload" />
+          <input type="file" :accept="acceptedFileTypes" @change="setUpload" />
           <button class="primary-button" type="submit" :disabled="!selectedFolderId || !uploadFile || loading">
             <Upload :size="16" />
-            上传 PDF
+            上传文档
           </button>
-          <span class="upload-hint">单个 PDF 最大 {{ formatSize(maxUploadBytes) }}</span>
+          <span class="upload-hint">支持 PDF、Markdown、图片、PPT，单个最大 {{ formatSize(maxUploadBytes) }}</span>
         </form>
 
         <div class="file-table">
@@ -319,7 +360,7 @@ async function selectFolder(folder: FolderItem) {
           </div>
           <div v-for="file in files" :key="file.id" class="file-row">
             <span>{{ file.name }}</span>
-            <span>{{ formatSize(file.size) }}</span>
+            <span>{{ formatFileKind(file) }} · {{ formatSize(file.size) }}</span>
             <input
               class="table-input"
               type="date"
@@ -334,7 +375,7 @@ async function selectFolder(folder: FolderItem) {
               <button class="text-button danger-text" type="button" @click="trashFile(file)">回收</button>
             </div>
           </div>
-          <p v-if="selectedFolderId && files.length === 0" class="empty-state">当前文件夹还没有 PDF。</p>
+          <p v-if="selectedFolderId && files.length === 0" class="empty-state">当前文件夹还没有可阅读文档。</p>
         </div>
       </section>
     </div>

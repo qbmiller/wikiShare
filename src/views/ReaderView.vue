@@ -1,76 +1,51 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ChevronLeft, ChevronRight, RotateCw, ZoomIn, ZoomOut } from 'lucide-vue-next'
-import * as pdfjsLib from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { api } from '@/api'
-import type { PdfFile } from '@/types'
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
+import ImageReader from '@/components/readers/ImageReader.vue'
+import MarkdownReader from '@/components/readers/MarkdownReader.vue'
+import PdfReader from '@/components/readers/PdfReader.vue'
+import PresentationReader from '@/components/readers/PresentationReader.vue'
+import UnsupportedReader from '@/components/readers/UnsupportedReader.vue'
+import type { SharedFile } from '@/types'
 
 const route = useRoute()
 const fileId = computed(() => String(route.params.id))
-const canvas = ref<HTMLCanvasElement | null>(null)
-const file = ref<PdfFile | null>(null)
-const pdf = ref<pdfjsLib.PDFDocumentProxy | null>(null)
-const pageNumber = ref(1)
-const pageCount = ref(0)
-const scale = ref(1.1)
-const rotation = ref(0)
+const file = ref<SharedFile | null>(null)
 const loading = ref(true)
 const error = ref('')
+const fileContentUrl = computed(() => `/api/files/${fileId.value}/content`)
+const readerComponent = computed(() => {
+  if (!file.value) {
+    return UnsupportedReader
+  }
+  if (file.value.mime_type === 'application/pdf') {
+    return PdfReader
+  }
+  if (file.value.mime_type.startsWith('text/markdown')) {
+    return MarkdownReader
+  }
+  if (file.value.mime_type.startsWith('image/')) {
+    return ImageReader
+  }
+  if (isPresentationFile(file.value)) {
+    return PresentationReader
+  }
+  return UnsupportedReader
+})
 
 onMounted(async () => {
   try {
-    file.value = await api<PdfFile>(`/api/files/${fileId.value}/metadata`)
-    pdf.value = await pdfjsLib.getDocument({
-      url: `/api/files/${fileId.value}/content`,
-      withCredentials: true,
-      rangeChunkSize: 65536,
-    }).promise
-    pageCount.value = pdf.value.numPages
-    await renderPage()
+    file.value = await api<SharedFile>(`/api/files/${fileId.value}/metadata`)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'PDF 加载失败'
+    error.value = err instanceof Error ? err.message : '文件信息加载失败'
   } finally {
     loading.value = false
   }
 })
 
-async function renderPage() {
-  if (!pdf.value || !canvas.value) {
-    await nextTick()
-  }
-  if (!pdf.value || !canvas.value) {
-    return
-  }
-
-  const page = await pdf.value.getPage(pageNumber.value)
-  const viewport = page.getViewport({ scale: scale.value, rotation: rotation.value })
-  const context = canvas.value.getContext('2d')
-  if (!context) {
-    return
-  }
-
-  canvas.value.width = viewport.width
-  canvas.value.height = viewport.height
-  await page.render({ canvas: canvas.value, canvasContext: context, viewport }).promise
-}
-
-async function go(delta: number) {
-  pageNumber.value = Math.min(Math.max(pageNumber.value + delta, 1), pageCount.value)
-  await renderPage()
-}
-
-async function zoom(delta: number) {
-  scale.value = Math.min(Math.max(scale.value + delta, 0.6), 2.2)
-  await renderPage()
-}
-
-async function rotate() {
-  rotation.value = (rotation.value + 90) % 360
-  await renderPage()
+function isPresentationFile(file: SharedFile): boolean {
+  return file.mime_type === 'application/vnd.ms-powerpoint' || file.mime_type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 }
 </script>
 
@@ -79,35 +54,12 @@ async function rotate() {
     <header class="reader-toolbar">
       <div>
         <p class="eyebrow">在线阅读</p>
-        <h1>{{ file?.name ?? 'PDF' }}</h1>
-      </div>
-
-      <div class="reader-controls">
-        <button class="icon-button" title="上一页" :disabled="pageNumber <= 1" @click="go(-1)">
-          <ChevronLeft :size="18" />
-        </button>
-        <span>{{ pageNumber }} / {{ pageCount || '-' }}</span>
-        <button class="icon-button" title="下一页" :disabled="pageNumber >= pageCount" @click="go(1)">
-          <ChevronRight :size="18" />
-        </button>
-        <button class="icon-button" title="缩小" @click="zoom(-0.1)">
-          <ZoomOut :size="18" />
-        </button>
-        <button class="icon-button" title="放大" @click="zoom(0.1)">
-          <ZoomIn :size="18" />
-        </button>
-        <button class="icon-button" title="旋转" @click="rotate">
-          <RotateCw :size="18" />
-        </button>
+        <h1>{{ file?.name ?? '文档' }}</h1>
       </div>
     </header>
 
-    <p v-if="loading" class="empty-state">正在加载 PDF...</p>
+    <p v-if="loading" class="empty-state">正在加载文件信息...</p>
     <p v-if="error" class="form-message">{{ error }}</p>
-
-    <div class="canvas-stage">
-      <canvas ref="canvas" />
-      <div class="watermark">CFShare · 当前账号 · {{ new Date().toLocaleString('zh-CN') }}</div>
-    </div>
+    <component :is="readerComponent" v-if="file && !error" :file="file" :content-url="fileContentUrl" />
   </section>
 </template>

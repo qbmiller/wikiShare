@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { BookOpen, FileText, Folder } from 'lucide-vue-next'
 import { api } from '@/api'
 import { formatDate } from '@/date'
-import type { Folder as FolderItem, PdfFile } from '@/types'
+import type { Folder as FolderItem, SharedFile } from '@/types'
 
 type FolderTreeNode = FolderItem & {
   children: FolderTreeNode[]
@@ -12,7 +12,7 @@ type FolderTreeNode = FolderItem & {
 
 const router = useRouter()
 const folders = ref<FolderItem[]>([])
-const files = ref<PdfFile[]>([])
+const files = ref<SharedFile[]>([])
 const selectedFolderId = ref('')
 const loadingFiles = ref(false)
 const error = ref('')
@@ -66,7 +66,7 @@ async function loadFiles() {
   loadingFiles.value = true
   error.value = ''
   try {
-    files.value = await api<PdfFile[]>(`/api/folders/${selectedFolderId.value}/files`)
+    files.value = await api<SharedFile[]>(`/api/folders/${selectedFolderId.value}/files`)
   } catch (err) {
     files.value = []
     error.value = err instanceof Error ? err.message : '加载文件失败'
@@ -93,7 +93,7 @@ function formatSize(size: number): string {
     <header class="page-header browse-header">
       <div>
         <p class="eyebrow">资料浏览</p>
-        <h1>PDF 在线阅读</h1>
+        <h1>文档在线阅读</h1>
       </div>
       <div class="browse-summary">
         <strong>{{ folders.length }}</strong>
@@ -168,7 +168,7 @@ function formatSize(size: number): string {
           <div>
             <p class="eyebrow">当前目录</p>
             <h2>{{ selectedFolder?.name ?? '请选择目录' }}</h2>
-            <span>{{ selectedFolder ? `有效期：${formatDate(selectedFolder.expires_at)}` : '左侧选择目录后查看 PDF' }}</span>
+            <span>{{ selectedFolder ? `有效期：${formatDate(selectedFolder.expires_at)}` : '左侧选择目录后查看文档' }}</span>
           </div>
           <BookOpen :size="28" />
         </div>
@@ -193,7 +193,7 @@ function formatSize(size: number): string {
         </div>
 
         <p v-if="loadingFiles" class="empty-state">正在加载文件...</p>
-        <p v-else-if="selectedFolderId && files.length === 0" class="empty-state">当前目录还没有可阅读 PDF。</p>
+        <p v-else-if="selectedFolderId && files.length === 0" class="empty-state">当前目录还没有可阅读文档。</p>
       </section>
     </div>
   </section>

@@ -11,7 +11,7 @@ const password = ref('')
 const loading = ref(false)
 const error = ref('')
 
-const title = computed(() => (mode.value === 'login' ? '登录 PDF 阅读系统' : '初始化管理员账号'))
+const title = computed(() => (mode.value === 'login' ? '登录阅读系统' : '初始化管理员账号'))
 
 async function submit() {
   error.value = ''

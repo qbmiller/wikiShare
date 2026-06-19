@@ -13,6 +13,82 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7
 const DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
+interface SupportedFileType {
+  kind: string
+  extensions: string[]
+  mimeTypes: string[]
+  contentType: string
+  r2Extension: string
+  validate: (bytes: ArrayBuffer, mimeType: string) => boolean
+}
+
+const SUPPORTED_FILE_TYPES: SupportedFileType[] = [
+  {
+    kind: 'pdf',
+    extensions: ['.pdf'],
+    mimeTypes: ['application/pdf'],
+    contentType: 'application/pdf',
+    r2Extension: 'pdf',
+    validate: isPdf,
+  },
+  {
+    kind: 'markdown',
+    extensions: ['.md', '.markdown'],
+    mimeTypes: ['text/markdown', 'text/x-markdown', 'text/plain', 'application/octet-stream'],
+    contentType: 'text/markdown; charset=utf-8',
+    r2Extension: 'md',
+    validate: isMarkdown,
+  },
+  {
+    kind: 'image',
+    extensions: ['.jpg', '.jpeg'],
+    mimeTypes: ['image/jpeg'],
+    contentType: 'image/jpeg',
+    r2Extension: 'jpg',
+    validate: isJpeg,
+  },
+  {
+    kind: 'image',
+    extensions: ['.png'],
+    mimeTypes: ['image/png'],
+    contentType: 'image/png',
+    r2Extension: 'png',
+    validate: isPng,
+  },
+  {
+    kind: 'image',
+    extensions: ['.webp'],
+    mimeTypes: ['image/webp'],
+    contentType: 'image/webp',
+    r2Extension: 'webp',
+    validate: isWebp,
+  },
+  {
+    kind: 'image',
+    extensions: ['.gif'],
+    mimeTypes: ['image/gif'],
+    contentType: 'image/gif',
+    r2Extension: 'gif',
+    validate: isGif,
+  },
+  {
+    kind: 'presentation',
+    extensions: ['.ppt'],
+    mimeTypes: ['application/vnd.ms-powerpoint', 'application/octet-stream'],
+    contentType: 'application/vnd.ms-powerpoint',
+    r2Extension: 'ppt',
+    validate: isOleCompoundFile,
+  },
+  {
+    kind: 'presentation',
+    extensions: ['.pptx'],
+    mimeTypes: ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/zip', 'application/octet-stream'],
+    contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    r2Extension: 'pptx',
+    validate: isZipPackage,
+  },
+]
+
 app.get('/api/health', (c) => c.json({ ok: true, service: 'cfshare' }))
 
 app.post('/api/setup/admin', async (c) => {
@@ -272,39 +348,41 @@ app.post('/api/files/upload', async (c) => {
   const folderId = String(form.folderId ?? '')
   const file = form.file
   if (!folderId || !(file instanceof File)) {
-    return jsonError(c, 400, 'invalid_upload', '请选择目标文件夹和 PDF 文件。')
+    return jsonError(c, 400, 'invalid_upload', '请选择目标文件夹和文件。')
   }
   const maxUploadBytes = getMaxUploadBytes(c.env)
   if (file.size > maxUploadBytes) {
-    return jsonError(c, 413, 'file_too_large', `PDF 文件不能超过 ${formatBytes(maxUploadBytes)}。`)
+    return jsonError(c, 413, 'file_too_large', `单个文件不能超过 ${formatBytes(maxUploadBytes)}。`)
   }
   if (!(await isFolderAvailable(c.env, folderId))) {
     return jsonError(c, 404, 'folder_unavailable', '目标文件夹不存在或不可访问。')
   }
 
   const bytes = await file.arrayBuffer()
-  if (!isPdf(bytes, file.type)) {
-    return jsonError(c, 400, 'invalid_pdf', '只允许上传 PDF 文件。')
+  const fileType = detectSupportedFileType(file.name, file.type, bytes)
+  if (!fileType) {
+    return jsonError(c, 400, 'unsupported_file_type', '只允许上传 PDF、Markdown、图片或 PPT 文件。')
   }
 
   const id = newId()
-  const r2Key = `active/default/${id}.pdf`
+  const r2Key = `active/default/${id}.${fileType.r2Extension}`
   const sha256 = await sha256Hex(bytes)
   await c.env.PDF_BUCKET.put(r2Key, bytes, {
     httpMetadata: {
-      contentType: 'application/pdf',
+      contentType: fileType.contentType,
     },
     customMetadata: {
       fileId: id,
       uploadedBy: c.get('user').id,
       sha256,
+      kind: fileType.kind,
     },
   })
   await c.env.DB.prepare(
     `insert into files(id, folder_id, name, r2_key, size, mime_type, sha256, expires_at, trashed_at, deleted_at, uploaded_by, created_at)
-     values (?, ?, ?, ?, ?, 'application/pdf', ?, null, null, null, ?, ?)`,
+     values (?, ?, ?, ?, ?, ?, ?, null, null, null, ?, ?)`,
   )
-    .bind(id, folderId, file.name || `${id}.pdf`, r2Key, bytes.byteLength, sha256, c.get('user').id, nowSeconds())
+    .bind(id, folderId, file.name || `${id}.${fileType.r2Extension}`, r2Key, bytes.byteLength, fileType.contentType, sha256, c.get('user').id, nowSeconds())
     .run()
   await audit(c.env, { userId: c.get('user').id, action: 'file_uploaded', targetType: 'file', targetId: id, detail: { size: bytes.byteLength } })
   return c.json({ id, name: file.name, size: bytes.byteLength }, 201)
@@ -341,13 +419,14 @@ app.get('/api/files/:id/content', async (c) => {
 
   const head = await c.env.PDF_BUCKET.head(file.r2_key)
   if (!head) {
-    return jsonError(c, 404, 'object_missing', 'PDF 对象不存在。')
+    return jsonError(c, 404, 'object_missing', '文件对象不存在。')
   }
 
+  const contentType = normalizeStoredContentType(file.mime_type)
   const range = parseRange(c.req.header('Range') ?? null, head.size)
   const headers = new Headers({
     'Accept-Ranges': 'bytes',
-    'Content-Type': 'application/pdf',
+    'Content-Type': contentType,
     'Cache-Control': 'private, no-store',
     'Content-Disposition': `inline; filename="${encodeURIComponent(file.name)}"`,
   })
@@ -365,7 +444,7 @@ app.get('/api/files/:id/content', async (c) => {
   }
 
   if (!object?.body) {
-    return jsonError(c, 404, 'object_missing', 'PDF 对象不存在。')
+    return jsonError(c, 404, 'object_missing', '文件对象不存在。')
   }
 
   await audit(c.env, { userId: c.get('user').id, action: 'file_read', targetType: 'file', targetId: file.id })
@@ -472,6 +551,57 @@ async function getReadableFile(env: Env, id: string): Promise<FileRecord | null>
 function isPdf(bytes: ArrayBuffer, mimeType: string): boolean {
   const header = new TextDecoder().decode(bytes.slice(0, 5))
   return header === '%PDF-' && (!mimeType || mimeType === 'application/pdf')
+}
+
+function isMarkdown(bytes: ArrayBuffer): boolean {
+  const sample = new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(0, Math.min(bytes.byteLength, 4096)))
+  return !sample.includes('\u0000')
+}
+
+function isJpeg(bytes: ArrayBuffer): boolean {
+  const view = new Uint8Array(bytes.slice(0, 3))
+  return view[0] === 0xff && view[1] === 0xd8 && view[2] === 0xff
+}
+
+function isPng(bytes: ArrayBuffer): boolean {
+  const view = new Uint8Array(bytes.slice(0, 8))
+  return view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4e && view[3] === 0x47 && view[4] === 0x0d && view[5] === 0x0a && view[6] === 0x1a && view[7] === 0x0a
+}
+
+function isWebp(bytes: ArrayBuffer): boolean {
+  const header = new TextDecoder().decode(bytes.slice(0, 12))
+  return header.startsWith('RIFF') && header.endsWith('WEBP')
+}
+
+function isGif(bytes: ArrayBuffer): boolean {
+  const header = new TextDecoder().decode(bytes.slice(0, 6))
+  return header === 'GIF87a' || header === 'GIF89a'
+}
+
+function isOleCompoundFile(bytes: ArrayBuffer): boolean {
+  const view = new Uint8Array(bytes.slice(0, 8))
+  return view[0] === 0xd0 && view[1] === 0xcf && view[2] === 0x11 && view[3] === 0xe0 && view[4] === 0xa1 && view[5] === 0xb1 && view[6] === 0x1a && view[7] === 0xe1
+}
+
+function isZipPackage(bytes: ArrayBuffer): boolean {
+  const view = new Uint8Array(bytes.slice(0, 4))
+  return view[0] === 0x50 && view[1] === 0x4b && (view[2] === 0x03 || view[2] === 0x05 || view[2] === 0x07) && (view[3] === 0x04 || view[3] === 0x06 || view[3] === 0x08)
+}
+
+function detectSupportedFileType(name: string, mimeType: string, bytes: ArrayBuffer) {
+  const lowerName = name.toLowerCase()
+  return SUPPORTED_FILE_TYPES.find((fileType) => {
+    const extensionMatched = fileType.extensions.some((extension) => lowerName.endsWith(extension))
+    const mimeMatched = !mimeType || fileType.mimeTypes.includes(mimeType)
+    return extensionMatched && mimeMatched && fileType.validate(bytes, mimeType)
+  }) ?? null
+}
+
+function normalizeStoredContentType(mimeType: string): string {
+  if (mimeType.startsWith('text/markdown')) {
+    return 'text/markdown; charset=utf-8'
+  }
+  return mimeType || 'application/octet-stream'
 }
 
 export function getMaxUploadBytes(env: Pick<Env, 'MAX_UPLOAD_BYTES'>): number {

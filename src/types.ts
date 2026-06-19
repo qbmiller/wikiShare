@@ -18,7 +18,7 @@ export interface Folder {
   created_at: number
 }
 
-export interface PdfFile {
+export interface SharedFile {
   id: string
   folder_id: string
   name: string
@@ -29,6 +29,8 @@ export interface PdfFile {
   trashed_at?: number | null
   created_at: number
 }
+
+export type PdfFile = SharedFile
 
 export interface ApiError {
   error?: {
