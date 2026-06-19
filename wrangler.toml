@@ -20,6 +20,6 @@ bucket_name = "cfshare-pdfs"
 crons = ["0 * * * *"]
 
 [vars]
+MAX_UPLOAD_BYTES = "104857600"
 TRASH_RETENTION_DAYS = "30"
 TRASH_MAX_BYTES = "21474836480"
-

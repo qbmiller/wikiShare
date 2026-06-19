@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { dateInputToEpoch, epochToDateInput } from '../src/date.js'
 import { filterVisibleFolders, getEffectiveFolderExpiration, isFileReadable, isFolderAvailable } from '../src/worker/db.js'
-import { restoreFolderTree, trashFolderTree } from '../src/worker/index.js'
+import { getMaxUploadBytes, restoreFolderTree, trashFolderTree } from '../src/worker/index.js'
 import { parseRange } from '../src/worker/range.js'
 import type { Env, FileRecord, FolderRecord } from '../src/worker/types.js'
 
@@ -19,6 +19,9 @@ assert.equal(typeof epoch, 'number')
 assert.equal(epochToDateInput(epoch), '2026-06-19')
 assert.equal(dateInputToEpoch(''), null)
 assert.equal(epochToDateInput(null), '')
+assert.equal(getMaxUploadBytes({}), 100 * 1024 * 1024)
+assert.equal(getMaxUploadBytes({ MAX_UPLOAD_BYTES: '1024' }), 1024)
+assert.equal(getMaxUploadBytes({ MAX_UPLOAD_BYTES: '-1' }), 100 * 1024 * 1024)
 
 const now = 1_800_000_000
 const folders = new Map<string, FolderRecord>([

@@ -3,6 +3,7 @@ export interface Env {
   PDF_BUCKET: R2Bucket
   ASSETS: Fetcher
   SESSION_SECRET?: string
+  MAX_UPLOAD_BYTES?: string
   TRASH_RETENTION_DAYS?: string
   TRASH_MAX_BYTES?: string
 }

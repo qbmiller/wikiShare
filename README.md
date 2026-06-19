@@ -12,6 +12,7 @@ Cloudflare Workers + Vue 3 的私有 PDF 在线阅读系统。系统不需要自
 - PDF.js 在线阅读，后端接口支持 HTTP Range。
 - 文件夹/文件回收站。
 - Cron 定时过期和回收站清理。
+- 默认单个 PDF 上传限制为 100MB，可通过 `MAX_UPLOAD_BYTES` 调整。
 
 ## 架构
 
@@ -71,6 +72,14 @@ npm run cf:prepare
 - R2 bucket：`cfshare-pdfs`
 
 并生成 `wrangler.local.toml`。这个文件包含真实 D1 database id，不提交到 git。
+
+可按需调整 `wrangler.local.toml` 中的变量：
+
+```toml
+MAX_UPLOAD_BYTES = "104857600"
+TRASH_RETENTION_DAYS = "30"
+TRASH_MAX_BYTES = "21474836480"
+```
 
 配置 secret：
 

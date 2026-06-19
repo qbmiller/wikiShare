@@ -186,6 +186,12 @@ h2 {
   gap: 10px;
 }
 
+.upload-hint {
+  align-self: center;
+  color: #7a827c;
+  font-size: 12px;
+}
+
 .user-form {
   grid-template-columns: 1fr 1fr 150px 140px auto;
 }

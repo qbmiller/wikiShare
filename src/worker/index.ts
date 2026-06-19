@@ -11,6 +11,7 @@ type Variables = {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7
+const DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 app.get('/api/health', (c) => c.json({ ok: true, service: 'cfshare' }))
 
@@ -273,6 +274,10 @@ app.post('/api/files/upload', async (c) => {
   if (!folderId || !(file instanceof File)) {
     return jsonError(c, 400, 'invalid_upload', '请选择目标文件夹和 PDF 文件。')
   }
+  const maxUploadBytes = getMaxUploadBytes(c.env)
+  if (file.size > maxUploadBytes) {
+    return jsonError(c, 413, 'file_too_large', `PDF 文件不能超过 ${formatBytes(maxUploadBytes)}。`)
+  }
   if (!(await isFolderAvailable(c.env, folderId))) {
     return jsonError(c, 404, 'folder_unavailable', '目标文件夹不存在或不可访问。')
   }
@@ -467,6 +472,21 @@ async function getReadableFile(env: Env, id: string): Promise<FileRecord | null>
 function isPdf(bytes: ArrayBuffer, mimeType: string): boolean {
   const header = new TextDecoder().decode(bytes.slice(0, 5))
   return header === '%PDF-' && (!mimeType || mimeType === 'application/pdf')
+}
+
+export function getMaxUploadBytes(env: Pick<Env, 'MAX_UPLOAD_BYTES'>): number {
+  const configured = Number.parseInt(env.MAX_UPLOAD_BYTES ?? '', 10)
+  if (!Number.isFinite(configured) || configured <= 0) {
+    return DEFAULT_MAX_UPLOAD_BYTES
+  }
+  return configured
+}
+
+function formatBytes(size: number): string {
+  if (size < 1024 * 1024) {
+    return `${Math.ceil(size / 1024)}KB`
+  }
+  return `${Math.ceil(size / 1024 / 1024)}MB`
 }
 
 export async function trashFolderTree(env: Env, folderId: string, at = nowSeconds()): Promise<void> {

@@ -17,6 +17,7 @@ const selectedFolderExpiresAt = ref('')
 const uploadFile = ref<File | null>(null)
 const loading = ref(false)
 const error = ref('')
+const maxUploadBytes = 100 * 1024 * 1024
 
 const selectedFolder = computed(() => folders.value.find((folder) => folder.id === selectedFolderId.value) ?? null)
 const parentOptions = computed(() => folders.value.filter((folder) => folder.depth < 3))
@@ -96,6 +97,10 @@ async function upload() {
   if (!selectedFolderId.value || !uploadFile.value) {
     return
   }
+  if (uploadFile.value.size > maxUploadBytes) {
+    error.value = `PDF 文件不能超过 ${formatSize(maxUploadBytes)}。`
+    return
+  }
 
   const form = new FormData()
   form.set('folderId', selectedFolderId.value)
@@ -141,6 +146,9 @@ function formatSize(size: number): string {
 function setUpload(event: Event) {
   const input = event.target as HTMLInputElement
   uploadFile.value = input.files?.[0] ?? null
+  if (uploadFile.value && uploadFile.value.size > maxUploadBytes) {
+    error.value = `PDF 文件不能超过 ${formatSize(maxUploadBytes)}。`
+  }
 }
 
 async function selectFolder(folder: Folder) {
@@ -217,6 +225,7 @@ async function selectFolder(folder: Folder) {
             <Upload :size="16" />
             上传 PDF
           </button>
+          <span class="upload-hint">单个 PDF 最大 {{ formatSize(maxUploadBytes) }}</span>
         </form>
 
         <div class="file-table">
