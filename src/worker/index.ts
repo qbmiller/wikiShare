@@ -208,10 +208,31 @@ app.post('/api/auth/change-password', async (c) => {
 })
 
 app.get('/api/users', requireAdmin, async (c) => {
-  const rows = await c.env.DB.prepare(
-    'select id, username, role, expires_at, disabled_at, created_at, last_login_at from users order by created_at desc',
-  ).all()
-  return c.json(rows.results)
+  const query = c.req.query('q')?.trim() ?? ''
+  const page = clampInt(c.req.query('page'), 1, 1, 100000)
+  const pageSize = clampInt(c.req.query('pageSize'), 20, 1, 100)
+  const offset = (page - 1) * pageSize
+  const whereSql = query ? " where username like ? escape '\\'" : ''
+  const queryParam = `%${escapeLike(query)}%`
+  const countStatement = c.env.DB.prepare(`select count(*) as count from users${whereSql}`)
+  const rowsStatement = c.env.DB.prepare(
+    `select id, username, role, expires_at, disabled_at, created_at, last_login_at
+     from users${whereSql}
+     order by created_at desc
+     limit ? offset ?`,
+  )
+
+  const countResult = query ? await countStatement.bind(queryParam).first<{ count: number }>() : await countStatement.first<{ count: number }>()
+  const rowsResult = query
+    ? await rowsStatement.bind(queryParam, pageSize, offset).all()
+    : await rowsStatement.bind(pageSize, offset).all()
+
+  return c.json({
+    items: rowsResult.results,
+    total: countResult?.count ?? 0,
+    page,
+    pageSize,
+  })
 })
 
 app.post('/api/users', requireAdmin, async (c) => {
@@ -624,6 +645,18 @@ async function requireAdmin(c: Context<{ Bindings: Env; Variables: Variables }>,
 
 function normalizeUsername(username: string | undefined): string {
   return username?.trim().toLowerCase() ?? ''
+}
+
+function clampInt(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  if (!Number.isFinite(parsed)) {
+    return fallback
+  }
+  return Math.min(Math.max(parsed, min), max)
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`)
 }
 
 function publicUser(user: UserRecord) {

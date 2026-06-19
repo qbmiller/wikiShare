@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { markRaw, nextTick, onMounted, ref, shallowRef } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
-import { ChevronLeft, ChevronRight, Columns2, RotateCw, ScrollText, ZoomIn, ZoomOut } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Columns2, RotateCw, ScrollText, ZoomIn, ZoomOut } from 'lucide-vue-next'
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import type { SharedFile } from '@/types'
@@ -94,13 +94,7 @@ async function renderCurrentMode() {
 }
 
 async function go(delta: number) {
-  pageNumber.value = Math.min(Math.max(pageNumber.value + delta, 1), pageCount.value)
-  pageInput.value = String(pageNumber.value)
-  if (viewMode.value === 'single') {
-    await renderPage()
-  } else {
-    await scrollToPage(pageNumber.value)
-  }
+  await goToPage(pageNumber.value + delta)
 }
 
 async function jumpToPage() {
@@ -109,6 +103,10 @@ async function jumpToPage() {
     pageInput.value = String(pageNumber.value)
     return
   }
+  await goToPage(target)
+}
+
+async function goToPage(target: number) {
   pageNumber.value = Math.min(Math.max(target, 1), pageCount.value || 1)
   pageInput.value = String(pageNumber.value)
   if (viewMode.value === 'single') {
@@ -151,6 +149,9 @@ async function scrollToPage(page: number) {
 <template>
   <section class="reader-format">
     <div class="reader-controls">
+      <button class="icon-button" title="首页" :disabled="pageNumber <= 1" @click="goToPage(1)">
+        <ChevronsLeft :size="18" />
+      </button>
       <button class="icon-button" title="上一页" :disabled="pageNumber <= 1" @click="go(-1)">
         <ChevronLeft :size="18" />
       </button>
@@ -161,6 +162,9 @@ async function scrollToPage(page: number) {
       </form>
       <button class="icon-button" title="下一页" :disabled="pageNumber >= pageCount" @click="go(1)">
         <ChevronRight :size="18" />
+      </button>
+      <button class="icon-button" title="最后一页" :disabled="pageNumber >= pageCount" @click="goToPage(pageCount || 1)">
+        <ChevronsRight :size="18" />
       </button>
       <div class="segmented-control" aria-label="阅读模式">
         <button :class="{ active: viewMode === 'single' }" title="单页模式" @click="setViewMode('single')">

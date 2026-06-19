@@ -407,6 +407,27 @@ h2 {
   grid-template-columns: 1fr 1fr 150px 140px auto;
 }
 
+.user-toolbar {
+  grid-template-columns: minmax(220px, 360px) auto;
+  align-items: center;
+  justify-content: start;
+}
+
+.user-toolbar span {
+  color: #7a827c;
+  font-size: 13px;
+}
+
+.table-pagination {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  color: #7a827c;
+  font-size: 13px;
+}
+
 .inline-form {
   grid-template-columns: minmax(180px, 260px) auto;
   justify-content: start;
@@ -830,8 +851,13 @@ textarea {
 }
 
 .reader-controls {
+  position: sticky;
+  top: 84px;
+  z-index: 2;
   justify-content: flex-end;
   flex-wrap: wrap;
+  padding: 10px 0;
+  background: #f4f1ea;
 }
 
 .reader-format {
@@ -1134,6 +1160,7 @@ canvas {
   .markdown-reader-layout,
   .markdown-editor-layout,
   .markdown-create-form,
+  .user-toolbar,
   .user-form,
   .inline-form {
     grid-template-columns: 1fr;

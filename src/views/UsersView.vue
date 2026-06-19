@@ -1,20 +1,46 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { api } from '@/api'
 import { dateInputToEpoch, epochToDateInput, formatDateTime } from '@/date'
-import type { User } from '@/types'
+import type { PaginatedUsers, User } from '@/types'
 
 const users = ref<User[]>([])
+const totalUsers = ref(0)
+const page = ref(1)
+const pageSize = 20
 const username = ref('')
 const password = ref('')
 const role = ref<'admin' | 'user'>('user')
 const expiresAt = ref('')
 const message = ref('')
+const userQuery = ref('')
+let userQueryTimer: number | null = null
 
 onMounted(loadUsers)
 
+watch(userQuery, () => {
+  if (userQueryTimer) {
+    window.clearTimeout(userQueryTimer)
+  }
+  userQueryTimer = window.setTimeout(() => {
+    page.value = 1
+    void loadUsers()
+  }, 300)
+})
+
 async function loadUsers() {
-  users.value = await api<User[]>('/api/users')
+  const params = new URLSearchParams({
+    page: String(page.value),
+    pageSize: String(pageSize),
+  })
+  const query = userQuery.value.trim()
+  if (query) {
+    params.set('q', query)
+  }
+  const result = await api<PaginatedUsers>(`/api/users?${params.toString()}`)
+  users.value = result.items
+  totalUsers.value = result.total
+  page.value = result.page
 }
 
 async function createUser() {
@@ -28,6 +54,7 @@ async function createUser() {
   role.value = 'user'
   expiresAt.value = ''
   message.value = '用户已创建。'
+  page.value = 1
   await loadUsers()
 }
 
@@ -71,6 +98,16 @@ function openDatePicker(event: MouseEvent) {
   const input = event.currentTarget as HTMLInputElement
   input.showPicker?.()
 }
+
+async function changePage(delta: number) {
+  const nextPage = page.value + delta
+  const lastPage = Math.max(Math.ceil(totalUsers.value / pageSize), 1)
+  if (nextPage < 1 || nextPage > lastPage) {
+    return
+  }
+  page.value = nextPage
+  await loadUsers()
+}
 </script>
 
 <template>
@@ -83,6 +120,11 @@ function openDatePicker(event: MouseEvent) {
     </header>
 
     <p v-if="message" class="form-message">{{ message }}</p>
+
+    <div class="panel user-toolbar">
+      <input v-model="userQuery" type="search" placeholder="查询用户账号" aria-label="查询用户账号" />
+      <span>共 {{ totalUsers }} 个用户</span>
+    </div>
 
     <form class="panel user-form" @submit.prevent="createUser">
       <input v-model="username" placeholder="账号" required />
@@ -133,6 +175,19 @@ function openDatePicker(event: MouseEvent) {
           <button v-else class="text-button danger-text" type="button" @click="setDisabled(user, true)">禁用</button>
         </div>
       </form>
+      <div class="table-pagination">
+        <button class="text-button" type="button" :disabled="page <= 1" @click="changePage(-1)">上一页</button>
+        <span>第 {{ page }} 页 · {{ (page - 1) * pageSize + users.length }} / {{ totalUsers }}</span>
+        <button
+          class="text-button"
+          type="button"
+          :disabled="(page - 1) * pageSize + users.length >= totalUsers"
+          @click="changePage(1)"
+        >
+          下一页
+        </button>
+      </div>
+      <p v-if="users.length === 0" class="empty-state">没有找到匹配的用户。</p>
     </div>
   </section>
 </template>

@@ -8,6 +8,13 @@ export interface User {
   last_login_at?: number | null
 }
 
+export interface PaginatedUsers {
+  items: User[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export interface Folder {
   id: string
   parent_id: string | null
