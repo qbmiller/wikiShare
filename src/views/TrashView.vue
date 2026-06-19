@@ -49,8 +49,11 @@ async function cleanup() {
         <h2>文件夹</h2>
         <span>{{ folders.length }} 个</span>
       </div>
-      <div v-for="folder in folders" :key="folder.id" class="file-row">
-        <span>{{ folder.name }}</span>
+      <div v-for="folder in folders" :key="folder.id" class="trash-row">
+        <span class="trash-item-main">
+          <strong>{{ folder.name }}</strong>
+          <small>{{ folder.path || folder.name }}</small>
+        </span>
         <span>{{ folder.depth }} 级</span>
         <button class="text-button" type="button" @click="restoreFolder(folder.id)">恢复</button>
       </div>
@@ -61,12 +64,14 @@ async function cleanup() {
         <h2>文件</h2>
         <span>{{ files.length }} 个</span>
       </div>
-      <div v-for="file in files" :key="file.id" class="file-row">
-        <span>{{ file.name }}</span>
+      <div v-for="file in files" :key="file.id" class="trash-row">
+        <span class="trash-item-main">
+          <strong>{{ file.name }}</strong>
+          <small>{{ file.path || file.name }}</small>
+        </span>
         <span>{{ file.size }} 字节</span>
         <button class="text-button" type="button" @click="restoreFile(file.id)">恢复</button>
       </div>
     </div>
   </section>
 </template>
-

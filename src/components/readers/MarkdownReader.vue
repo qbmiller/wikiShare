@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { api } from '@/api'
 import type { SharedFile } from '@/types'
 
 const props = defineProps<{
   file: SharedFile
   contentUrl: string
 }>()
+
+const route = useRoute()
 
 interface MarkdownHeading {
   id: string
@@ -14,9 +18,14 @@ interface MarkdownHeading {
 }
 
 const markdownHtml = ref('')
+const markdownText = ref('')
 const headings = ref<MarkdownHeading[]>([])
 const loading = ref(true)
+const saving = ref(false)
+const editing = ref(route.query.edit === '1')
 const error = ref('')
+const savedMessage = ref('')
+const renderedPreview = computed(() => renderMarkdown(markdownText.value))
 
 onMounted(async () => {
   try {
@@ -24,15 +33,39 @@ onMounted(async () => {
     if (!response.ok) {
       throw new Error(`Markdown 加载失败：${response.status}`)
     }
-    const rendered = renderMarkdown(await response.text())
-    markdownHtml.value = rendered.html
-    headings.value = rendered.headings
+    markdownText.value = await response.text()
+    updateRenderedMarkdown()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Markdown 加载失败'
   } finally {
     loading.value = false
   }
 })
+
+async function saveMarkdown() {
+  saving.value = true
+  error.value = ''
+  savedMessage.value = ''
+  try {
+    await api(`/api/files/${props.file.id}/content`, {
+      method: 'PUT',
+      body: JSON.stringify({ content: markdownText.value }),
+    })
+    updateRenderedMarkdown()
+    editing.value = false
+    savedMessage.value = '已保存'
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Markdown 保存失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+function updateRenderedMarkdown() {
+  const rendered = renderMarkdown(markdownText.value)
+  markdownHtml.value = rendered.html
+  headings.value = rendered.headings
+}
 
 function renderMarkdown(markdown: string): { html: string; headings: MarkdownHeading[] } {
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
@@ -132,8 +165,24 @@ function scrollToHeading(id: string) {
   <section class="reader-format">
     <p v-if="loading" class="empty-state">正在加载 Markdown...</p>
     <p v-if="error" class="form-message">{{ error }}</p>
+    <p v-if="savedMessage" class="form-message">{{ savedMessage }}</p>
 
-    <div class="markdown-reader-layout">
+    <div v-if="!loading" class="reader-controls">
+      <div class="segmented-control">
+        <button type="button" :class="{ active: !editing }" @click="editing = false; updateRenderedMarkdown()">预览</button>
+        <button type="button" :class="{ active: editing }" @click="editing = true">编辑</button>
+      </div>
+      <button class="primary-button" type="button" :disabled="saving" @click="saveMarkdown">保存</button>
+    </div>
+
+    <div v-if="!loading && editing" class="markdown-editor-layout">
+      <textarea v-model="markdownText" class="markdown-editor" spellcheck="false"></textarea>
+      <article class="markdown-stage markdown-preview-stage">
+        <div class="markdown-body" v-html="renderedPreview.html"></div>
+      </article>
+    </div>
+
+    <div v-if="!loading && !editing" class="markdown-reader-layout">
       <article class="markdown-stage">
         <div class="markdown-body" v-html="markdownHtml"></div>
         <div class="watermark">CFShare · 当前账号 · {{ new Date().toLocaleString('zh-CN') }}</div>

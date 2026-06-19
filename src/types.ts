@@ -16,6 +16,7 @@ export interface Folder {
   expires_at: number | null
   trashed_at?: number | null
   created_at: number
+  path?: string
 }
 
 export interface SharedFile {
@@ -28,6 +29,7 @@ export interface SharedFile {
   expires_at: number | null
   trashed_at?: number | null
   created_at: number
+  path?: string
 }
 
 export type PdfFile = SharedFile

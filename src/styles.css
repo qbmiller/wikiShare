@@ -318,6 +318,7 @@ h2 {
 
 .compact-form,
 .upload-bar,
+.markdown-create-form,
 .user-form,
 .inline-form,
 .settings-form {
@@ -331,6 +332,17 @@ h2 {
   font-size: 12px;
 }
 
+.upload-bar {
+  border: 1px dashed transparent;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.upload-bar-dragging {
+  border-color: #1f6f54;
+  background: #f4faf6;
+}
+
 .user-form {
   grid-template-columns: 1fr 1fr 150px 140px auto;
 }
@@ -340,15 +352,29 @@ h2 {
   justify-content: start;
 }
 
+.markdown-create-form {
+  grid-template-columns: minmax(180px, 1fr) auto;
+}
+
 input,
-select {
+select,
+textarea {
   width: 100%;
-  min-height: 40px;
   border: 1px solid #cfc5b3;
   border-radius: 6px;
-  padding: 0 12px;
   background: #fffdfa;
   color: #15201b;
+}
+
+input,
+select {
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+textarea {
+  padding: 12px;
+  resize: vertical;
 }
 
 .primary-button,
@@ -549,6 +575,33 @@ select {
   white-space: nowrap;
 }
 
+.trash-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 72px;
+  gap: 12px;
+  align-items: center;
+  min-height: 56px;
+  border-top: 1px solid #e5ddce;
+}
+
+.trash-item-main {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.trash-item-main strong,
+.trash-item-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trash-item-main small {
+  color: #7a827c;
+  font-size: 12px;
+}
+
 .table-input {
   min-height: 34px;
 }
@@ -733,6 +786,23 @@ select {
   align-items: start;
 }
 
+.markdown-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.markdown-editor {
+  min-height: calc(100vh - 210px);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  line-height: 1.6;
+}
+
+.markdown-preview-stage {
+  min-height: calc(100vh - 210px);
+}
+
 .markdown-outline {
   position: sticky;
   top: 86px;
@@ -911,6 +981,8 @@ canvas {
   .split-layout,
   .browse-layout,
   .markdown-reader-layout,
+  .markdown-editor-layout,
+  .markdown-create-form,
   .user-form,
   .inline-form {
     grid-template-columns: 1fr;
@@ -941,6 +1013,7 @@ canvas {
 
   .file-table-head,
   .file-row,
+  .trash-row,
   .user-row,
   .user-form + .panel .file-table-head,
   .audit-head,

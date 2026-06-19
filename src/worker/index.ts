@@ -400,6 +400,48 @@ app.post('/api/files/upload', async (c) => {
   return c.json({ id, name: file.name, size: bytes.byteLength }, 201)
 })
 
+app.post('/api/files/markdown', async (c) => {
+  const body = await c.req.json<{ folderId?: string; name?: string; content?: string }>()
+  const folderId = body.folderId ?? ''
+  if (!folderId || !(await isFolderAvailable(c.env, folderId))) {
+    return jsonError(c, 404, 'folder_unavailable', '目标文件夹不存在或不可访问。')
+  }
+
+  const name = normalizeMarkdownFileName(body.name)
+  if (!name) {
+    return jsonError(c, 400, 'invalid_file_name', 'Markdown 文件名不能为空。')
+  }
+
+  const content = body.content ?? ''
+  const bytes = encodeUtf8(content)
+  if (bytes.byteLength > getMaxUploadBytes(c.env)) {
+    return jsonError(c, 413, 'file_too_large', `单个文件不能超过 ${formatBytes(getMaxUploadBytes(c.env))}。`)
+  }
+
+  const id = newId()
+  const r2Key = `active/default/${id}.md`
+  const sha256 = await sha256Hex(bytes)
+  await c.env.PDF_BUCKET.put(r2Key, bytes, {
+    httpMetadata: {
+      contentType: 'text/markdown; charset=utf-8',
+    },
+    customMetadata: {
+      fileId: id,
+      uploadedBy: c.get('user').id,
+      sha256,
+      kind: 'markdown',
+    },
+  })
+  await c.env.DB.prepare(
+    `insert into files(id, folder_id, name, r2_key, size, mime_type, sha256, expires_at, trashed_at, deleted_at, uploaded_by, created_at)
+     values (?, ?, ?, ?, ?, 'text/markdown; charset=utf-8', ?, null, null, null, ?, ?)`,
+  )
+    .bind(id, folderId, name, r2Key, bytes.byteLength, sha256, c.get('user').id, nowSeconds())
+    .run()
+  await audit(c.env, { userId: c.get('user').id, action: 'markdown_created', targetType: 'file', targetId: id, detail: { size: bytes.byteLength } })
+  return c.json({ id, name, size: bytes.byteLength }, 201)
+})
+
 app.get('/api/files/:id/metadata', async (c) => {
   const file = await getReadableFile(c.env, c.req.param('id'))
   if (!file) {
@@ -421,6 +463,42 @@ app.patch('/api/files/:id', async (c) => {
     .run()
   await audit(c.env, { userId: c.get('user').id, action: 'file_updated', targetType: 'file', targetId: id })
   return c.json({ ok: true })
+})
+
+app.put('/api/files/:id/content', async (c) => {
+  const id = c.req.param('id')
+  const file = await getFile(c.env, id)
+  if (!file || file.deleted_at || file.trashed_at) {
+    return jsonError(c, 404, 'file_not_found', '文件不存在。')
+  }
+  if (!file.mime_type.startsWith('text/markdown')) {
+    return jsonError(c, 400, 'unsupported_file_type', '当前只支持编辑 Markdown 文件。')
+  }
+
+  const body = await c.req.json<{ content?: string }>()
+  const content = body.content ?? ''
+  const bytes = encodeUtf8(content)
+  if (bytes.byteLength > getMaxUploadBytes(c.env)) {
+    return jsonError(c, 413, 'file_too_large', `单个文件不能超过 ${formatBytes(getMaxUploadBytes(c.env))}。`)
+  }
+
+  const sha256 = await sha256Hex(bytes)
+  await c.env.PDF_BUCKET.put(file.r2_key, bytes, {
+    httpMetadata: {
+      contentType: 'text/markdown; charset=utf-8',
+    },
+    customMetadata: {
+      fileId: file.id,
+      uploadedBy: file.uploaded_by,
+      sha256,
+      kind: 'markdown',
+    },
+  })
+  await c.env.DB.prepare('update files set size = ?, sha256 = ?, mime_type = ? where id = ?')
+    .bind(bytes.byteLength, sha256, 'text/markdown; charset=utf-8', id)
+    .run()
+  await audit(c.env, { userId: c.get('user').id, action: 'markdown_updated', targetType: 'file', targetId: id, detail: { size: bytes.byteLength } })
+  return c.json({ ok: true, size: bytes.byteLength, sha256 })
 })
 
 app.get('/api/files/:id/content', async (c) => {
@@ -490,9 +568,21 @@ app.delete('/api/files/:id', requireAdmin, async (c) => {
 })
 
 app.get('/api/trash', async (c) => {
-  const folders = await c.env.DB.prepare('select * from folders where trashed_at is not null order by trashed_at desc').all()
-  const files = await c.env.DB.prepare('select * from files where trashed_at is not null and deleted_at is null order by trashed_at desc').all()
-  return c.json({ folders: folders.results, files: files.results })
+  const allFolders = await c.env.DB.prepare('select * from folders').all<FolderRecord>()
+  const folders = await c.env.DB.prepare('select * from folders where trashed_at is not null order by trashed_at desc').all<FolderRecord>()
+  const files = await c.env.DB.prepare('select * from files where trashed_at is not null and deleted_at is null order by trashed_at desc').all<FileRecord>()
+  const folderPathMap = buildFolderPathMap(allFolders.results)
+
+  return c.json({
+    folders: folders.results.map((folder) => ({
+      ...folder,
+      path: folderPathMap.get(folder.id) ?? folder.name,
+    })),
+    files: files.results.map((file) => ({
+      ...file,
+      path: joinPath(folderPathMap.get(file.folder_id), file.name),
+    })),
+  })
 })
 
 app.post('/api/trash/cleanup', requireAdmin, async (c) => {
@@ -550,6 +640,38 @@ function publicFile(file: FileRecord) {
     expires_at: file.expires_at,
     created_at: file.created_at,
   }
+}
+
+function buildFolderPathMap(folders: FolderRecord[]): Map<string, string> {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+  const paths = new Map<string, string>()
+
+  const resolve = (folder: FolderRecord, visiting = new Set<string>()): string => {
+    const existing = paths.get(folder.id)
+    if (existing) {
+      return existing
+    }
+    if (visiting.has(folder.id)) {
+      return folder.name
+    }
+
+    visiting.add(folder.id)
+    const parent = folder.parent_id ? byId.get(folder.parent_id) : null
+    const path = parent ? joinPath(resolve(parent, visiting), folder.name) : folder.name
+    visiting.delete(folder.id)
+    paths.set(folder.id, path)
+    return path
+  }
+
+  for (const folder of folders) {
+    resolve(folder)
+  }
+
+  return paths
+}
+
+function joinPath(parentPath: string | undefined, name: string): string {
+  return parentPath ? `${parentPath}/${name}` : name
 }
 
 async function getReadableFile(env: Env, id: string): Promise<FileRecord | null> {
@@ -614,6 +736,19 @@ function normalizeStoredContentType(mimeType: string): string {
     return 'text/markdown; charset=utf-8'
   }
   return mimeType || 'application/octet-stream'
+}
+
+function normalizeMarkdownFileName(name: string | undefined): string {
+  const trimmed = name?.trim().replace(/[\\/:*?"<>|]/g, '-') ?? ''
+  if (!trimmed) {
+    return ''
+  }
+  return /\.(md|markdown)$/i.test(trimmed) ? trimmed : `${trimmed}.md`
+}
+
+function encodeUtf8(value: string): ArrayBuffer {
+  const bytes = new TextEncoder().encode(value)
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 }
 
 export function getMaxUploadBytes(env: Pick<Env, 'MAX_UPLOAD_BYTES'>): number {

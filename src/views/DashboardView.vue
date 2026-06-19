@@ -15,6 +15,8 @@ const newFolderParentId = ref<string>('')
 const newFolderExpiresAt = ref('')
 const selectedFolderExpiresAt = ref('')
 const uploadFile = ref<File | null>(null)
+const isUploadDragging = ref(false)
+const newMarkdownName = ref('')
 const loading = ref(false)
 const error = ref('')
 const draggedFolderId = ref<string | null>(null)
@@ -195,6 +197,31 @@ async function upload() {
   }
 }
 
+async function createMarkdownFile() {
+  if (!selectedFolderId.value || !newMarkdownName.value.trim()) {
+    return
+  }
+  loading.value = true
+  error.value = ''
+  try {
+    const created = await api<{ id: string }>('/api/files/markdown', {
+      method: 'POST',
+      body: JSON.stringify({
+        folderId: selectedFolderId.value,
+        name: newMarkdownName.value,
+        content: `# ${newMarkdownName.value.replace(/\.(md|markdown)$/i, '')}\n\n`,
+      }),
+    })
+    newMarkdownName.value = ''
+    await loadFiles()
+    router.push(`/reader/file/${created.id}?edit=1`)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '新建 Markdown 失败'
+  } finally {
+    loading.value = false
+  }
+}
+
 async function trashFile(file: SharedFile) {
   await api(`/api/files/${file.id}/trash`, { method: 'POST' })
   await loadFiles()
@@ -218,10 +245,37 @@ function formatSize(size: number): string {
 
 function setUpload(event: Event) {
   const input = event.target as HTMLInputElement
-  uploadFile.value = input.files?.[0] ?? null
+  setUploadFile(input.files?.[0] ?? null)
+}
+
+function setUploadFile(file: File | null) {
+  uploadFile.value = file
   if (uploadFile.value && uploadFile.value.size > maxUploadBytes) {
     error.value = `单个文件不能超过 ${formatSize(maxUploadBytes)}。`
   }
+}
+
+function dragOverUpload(event: DragEvent) {
+  event.preventDefault()
+  isUploadDragging.value = true
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = selectedFolderId.value ? 'copy' : 'none'
+  }
+}
+
+async function dropUpload(event: DragEvent) {
+  event.preventDefault()
+  isUploadDragging.value = false
+  const file = event.dataTransfer?.files?.[0] ?? null
+  if (!file) {
+    return
+  }
+  if (!selectedFolderId.value) {
+    error.value = '请先选择目标文件夹。'
+    return
+  }
+  setUploadFile(file)
+  await upload()
 }
 
 function formatFileKind(file: SharedFile): string {
@@ -520,7 +574,19 @@ async function dropOnRoot() {
           <button class="primary-button" type="submit">保存有效期</button>
         </form>
 
-        <form class="upload-bar" @submit.prevent="upload">
+        <form v-if="selectedFolder" class="markdown-create-form" @submit.prevent="createMarkdownFile">
+          <input v-model="newMarkdownName" placeholder="新建 Markdown，例如 会议纪要.md" />
+          <button class="primary-button" type="submit" :disabled="loading || !newMarkdownName.trim()">新建 MD</button>
+        </form>
+
+        <form
+          class="upload-bar"
+          :class="{ 'upload-bar-dragging': isUploadDragging }"
+          @submit.prevent="upload"
+          @dragover="dragOverUpload"
+          @dragleave="isUploadDragging = false"
+          @drop="dropUpload"
+        >
           <input type="file" :accept="acceptedFileTypes" @change="setUpload" />
           <button class="primary-button" type="submit" :disabled="!selectedFolderId || !uploadFile || loading">
             <Upload :size="16" />
