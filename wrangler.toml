@@ -1,0 +1,25 @@
+name = "cfshare"
+main = "src/worker/index.ts"
+compatibility_date = "2026-06-19"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cfshare-db"
+database_id = "replace-with-cloudflare-d1-database-id"
+
+[[r2_buckets]]
+binding = "PDF_BUCKET"
+bucket_name = "cfshare-pdfs"
+
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+TRASH_RETENTION_DAYS = "30"
+TRASH_MAX_BYTES = "21474836480"
+
