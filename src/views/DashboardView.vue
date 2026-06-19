@@ -17,6 +17,9 @@ const selectedFolderExpiresAt = ref('')
 const uploadFile = ref<File | null>(null)
 const loading = ref(false)
 const error = ref('')
+const draggedFolderId = ref<string | null>(null)
+const dropTarget = ref<{ folderId: string; position: DropPosition } | null>(null)
+const dragOverRoot = ref(false)
 const maxUploadBytes = 100 * 1024 * 1024
 const acceptedFileTypes = [
   'application/pdf',
@@ -44,6 +47,8 @@ type FolderTreeNode = FolderItem & {
   children: FolderTreeNode[]
 }
 
+type DropPosition = 'before' | 'inside' | 'after'
+
 const selectedFolder = computed(() => folders.value.find((folder) => folder.id === selectedFolderId.value) ?? null)
 const parentOptions = computed(() => folders.value.filter((folder) => folder.depth < 3))
 const folderTree = computed(() => {
@@ -70,6 +75,8 @@ const folderTree = computed(() => {
 
   return roots
 })
+
+const folderById = computed(() => new Map(folders.value.map((folder) => [folder.id, folder])))
 
 onMounted(loadFolders)
 
@@ -128,6 +135,23 @@ async function updateSelectedFolderExpiration() {
     }),
   })
   await loadFolders()
+}
+
+async function moveFolder(folderId: string, parentId: string | null) {
+  loading.value = true
+  error.value = ''
+  try {
+    await api(`/api/folders/${folderId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ parentId }),
+    })
+    await loadFolders()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '移动失败'
+  } finally {
+    loading.value = false
+    clearFolderDrag()
+  }
 }
 
 async function updateFileExpiration(file: SharedFile, event: Event) {
@@ -230,6 +254,136 @@ async function selectFolder(folder: FolderItem) {
   selectedFolderExpiresAt.value = epochToDateInput(folder.expires_at)
   await loadFiles()
 }
+
+function startFolderDrag(folder: FolderItem, event: DragEvent) {
+  draggedFolderId.value = folder.id
+  event.dataTransfer?.setData('text/plain', folder.id)
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+  }
+}
+
+function clearFolderDrag() {
+  draggedFolderId.value = null
+  dropTarget.value = null
+  dragOverRoot.value = false
+}
+
+function canDropFolder(targetParentId: string | null, targetFolderId: string | null = null): boolean {
+  const movingId = draggedFolderId.value
+  if (!movingId) {
+    return false
+  }
+  if (movingId === targetParentId || movingId === targetFolderId) {
+    return false
+  }
+
+  const moving = folderById.value.get(movingId)
+  if (!moving || moving.parent_id === targetParentId) {
+    return false
+  }
+
+  let current = targetParentId ? folderById.value.get(targetParentId) : null
+  while (current) {
+    if (current.id === movingId) {
+      return false
+    }
+    current = current.parent_id ? folderById.value.get(current.parent_id) ?? null : null
+  }
+
+  return targetDepth(targetParentId) + maxDescendantDepthOffset(movingId) <= 3
+}
+
+function maxDescendantDepthOffset(folderId: string): number {
+  const base = folderById.value.get(folderId)
+  if (!base) {
+    return 0
+  }
+
+  let maxDepth = base.depth
+  const stack = [folderId]
+  while (stack.length > 0) {
+    const parentId = stack.pop()
+    for (const folder of folders.value) {
+      if (folder.parent_id === parentId) {
+        maxDepth = Math.max(maxDepth, folder.depth)
+        stack.push(folder.id)
+      }
+    }
+  }
+  return maxDepth - base.depth
+}
+
+function targetDepth(parentId: string | null): number {
+  if (!parentId) {
+    return 1
+  }
+  const parent = folderById.value.get(parentId)
+  return parent ? parent.depth + 1 : 4
+}
+
+function dragOverFolder(folder: FolderItem, event: DragEvent) {
+  const position = getDropPosition(event)
+  const parentId = position === 'inside' ? folder.id : folder.parent_id
+  if (!canDropFolder(parentId, folder.id)) {
+    dropTarget.value = null
+    return
+  }
+  event.preventDefault()
+  dropTarget.value = { folderId: folder.id, position }
+  dragOverRoot.value = false
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+}
+
+async function dropOnFolder(folder: FolderItem) {
+  const position = dropTarget.value?.folderId === folder.id ? dropTarget.value.position : 'inside'
+  const parentId = position === 'inside' ? folder.id : folder.parent_id
+  if (!draggedFolderId.value || !canDropFolder(parentId, folder.id)) {
+    clearFolderDrag()
+    return
+  }
+  await moveFolder(draggedFolderId.value, parentId)
+}
+
+function getDropPosition(event: DragEvent): DropPosition {
+  const row = event.currentTarget as HTMLElement
+  const rect = row.getBoundingClientRect()
+  const offsetY = event.clientY - rect.top
+  if (offsetY < rect.height * 0.28) {
+    return 'before'
+  }
+  if (offsetY > rect.height * 0.72) {
+    return 'after'
+  }
+  return 'inside'
+}
+
+function isDropTarget(folder: FolderItem, position: DropPosition): boolean {
+  return dropTarget.value?.folderId === folder.id && dropTarget.value.position === position
+}
+
+function dragOverRootDropZone(event: DragEvent) {
+  if (!canDropFolder(null)) {
+    dragOverRoot.value = false
+    return
+  }
+  event.preventDefault()
+  dropTarget.value = null
+  dragOverRoot.value = true
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+}
+
+async function dropOnRoot() {
+  if (!draggedFolderId.value || !canDropFolder(null)) {
+    clearFolderDrag()
+    return
+  }
+  await moveFolder(draggedFolderId.value, null)
+}
 </script>
 
 <template>
@@ -271,12 +425,24 @@ async function selectFolder(folder: FolderItem) {
           </button>
         </form>
 
-        <div class="folder-list">
+        <div
+          class="folder-list"
+          :class="{ 'drop-root-active': dragOverRoot }"
+          @dragover.self="dragOverRootDropZone"
+          @dragleave.self="dragOverRoot = false"
+          @drop.self="dropOnRoot"
+        >
           <ul class="tree-list">
             <li v-for="folder in folderTree" :key="folder.id" class="tree-item">
               <button
                 class="folder-row"
-                :class="{ active: folder.id === selectedFolderId }"
+                :class="{ active: folder.id === selectedFolderId, dragging: folder.id === draggedFolderId, 'drop-target': isDropTarget(folder, 'inside'), 'drop-before': isDropTarget(folder, 'before'), 'drop-after': isDropTarget(folder, 'after') }"
+                draggable="true"
+                @dragstart="startFolderDrag(folder, $event)"
+                @dragover="dragOverFolder(folder, $event)"
+                @dragleave="dropTarget = null"
+                @dragend="clearFolderDrag"
+                @drop.stop="dropOnFolder(folder)"
                 @click="selectFolder(folder)"
               >
                 <span class="folder-name">
@@ -290,7 +456,13 @@ async function selectFolder(folder: FolderItem) {
                 <li v-for="child in folder.children" :key="child.id" class="tree-item">
                   <button
                     class="folder-row"
-                    :class="{ active: child.id === selectedFolderId }"
+                    :class="{ active: child.id === selectedFolderId, dragging: child.id === draggedFolderId, 'drop-target': isDropTarget(child, 'inside'), 'drop-before': isDropTarget(child, 'before'), 'drop-after': isDropTarget(child, 'after') }"
+                    draggable="true"
+                    @dragstart="startFolderDrag(child, $event)"
+                    @dragover="dragOverFolder(child, $event)"
+                    @dragleave="dropTarget = null"
+                    @dragend="clearFolderDrag"
+                    @drop.stop="dropOnFolder(child)"
                     @click="selectFolder(child)"
                   >
                     <span class="folder-name">
@@ -304,7 +476,13 @@ async function selectFolder(folder: FolderItem) {
                     <li v-for="grandchild in child.children" :key="grandchild.id" class="tree-item">
                       <button
                         class="folder-row"
-                        :class="{ active: grandchild.id === selectedFolderId }"
+                        :class="{ active: grandchild.id === selectedFolderId, dragging: grandchild.id === draggedFolderId, 'drop-target': isDropTarget(grandchild, 'inside'), 'drop-before': isDropTarget(grandchild, 'before'), 'drop-after': isDropTarget(grandchild, 'after') }"
+                        draggable="true"
+                        @dragstart="startFolderDrag(grandchild, $event)"
+                        @dragover="dragOverFolder(grandchild, $event)"
+                        @dragleave="dropTarget = null"
+                        @dragend="clearFolderDrag"
+                        @drop.stop="dropOnFolder(grandchild)"
                         @click="selectFolder(grandchild)"
                       >
                         <span class="folder-name">

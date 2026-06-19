@@ -297,9 +297,21 @@ app.post('/api/folders', async (c) => {
 
 app.patch('/api/folders/:id', async (c) => {
   const id = c.req.param('id')
-  const body = await c.req.json<{ name?: string; expiresAt?: number | null }>()
+  const body = await c.req.json<{ name?: string; expiresAt?: number | null; parentId?: string | null }>()
+  const folder = await getFolder(c.env, id)
+  if (!folder || folder.trashed_at) {
+    return jsonError(c, 404, 'folder_not_found', '文件夹不存在。')
+  }
+
+  if ('parentId' in body) {
+    const moveResult = await moveFolderTree(c.env, folder, body.parentId ?? null)
+    if (moveResult) {
+      return jsonError(c, moveResult.status, moveResult.code, moveResult.message)
+    }
+  }
+
   await c.env.DB.prepare('update folders set name = coalesce(?, name), expires_at = ? where id = ?')
-    .bind(body.name?.trim() || null, body.expiresAt ?? null, id)
+    .bind(body.name?.trim() || null, 'expiresAt' in body ? body.expiresAt ?? null : folder.expires_at, id)
     .run()
   await audit(c.env, { userId: c.get('user').id, action: 'folder_updated', targetType: 'folder', targetId: id })
   return c.json({ ok: true })
@@ -617,6 +629,60 @@ function formatBytes(size: number): string {
     return `${Math.ceil(size / 1024)}KB`
   }
   return `${Math.ceil(size / 1024 / 1024)}MB`
+}
+
+async function moveFolderTree(
+  env: Env,
+  folder: FolderRecord,
+  parentId: string | null,
+): Promise<{ status: 400 | 404; code: string; message: string } | null> {
+  if (folder.parent_id === parentId) {
+    return null
+  }
+
+  const folders = await env.DB.prepare('select * from folders where trashed_at is null').all<FolderRecord>()
+  const byId = new Map(folders.results.map((item) => [item.id, item]))
+  const parent = parentId ? byId.get(parentId) : null
+
+  if (parentId && !parent) {
+    return { status: 404, code: 'parent_not_found', message: '上级文件夹不存在。' }
+  }
+
+  const subtreeIds = new Set<string>([folder.id])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const item of folders.results) {
+      if (item.parent_id && subtreeIds.has(item.parent_id) && !subtreeIds.has(item.id)) {
+        subtreeIds.add(item.id)
+        changed = true
+      }
+    }
+  }
+
+  if (parentId && subtreeIds.has(parentId)) {
+    return { status: 400, code: 'invalid_parent', message: '不能移动到自己或下级文件夹中。' }
+  }
+
+  const targetDepth = parent ? parent.depth + 1 : 1
+  const depthDelta = targetDepth - folder.depth
+  const maxDepth = Math.max(...folders.results.filter((item) => subtreeIds.has(item.id)).map((item) => item.depth + depthDelta))
+  if (maxDepth > 3) {
+    return { status: 400, code: 'max_depth_exceeded', message: '文件夹最多只能嵌套 3 级。' }
+  }
+
+  await env.DB.batch(
+    folders.results
+      .filter((item) => subtreeIds.has(item.id))
+      .map((item) => {
+        if (item.id === folder.id) {
+          return env.DB.prepare('update folders set parent_id = ?, depth = ? where id = ?').bind(parentId, item.depth + depthDelta, item.id)
+        }
+        return env.DB.prepare('update folders set depth = ? where id = ?').bind(item.depth + depthDelta, item.id)
+      }),
+  )
+
+  return null
 }
 
 export async function trashFolderTree(env: Env, folderId: string, at = nowSeconds()): Promise<void> {
