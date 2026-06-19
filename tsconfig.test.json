@@ -4,9 +4,9 @@
     "allowImportingTsExtensions": false,
     "noEmit": false,
     "outDir": ".tmp-tests",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "types": ["node"]
   },
-  "include": ["scripts/test.mts", "src/date.ts", "src/worker/range.ts"]
+  "include": ["scripts/test.mts", "src/date.ts", "src/worker/crypto.ts", "src/worker/db.ts", "src/worker/range.ts", "src/worker/types.ts"]
 }

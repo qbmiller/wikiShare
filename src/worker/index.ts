@@ -1,9 +1,9 @@
 import { Hono, type Context, type Next } from 'hono'
-import { hashPassword, newId, nowSeconds, randomToken, sha256Hex, verifyPassword } from './crypto'
-import { audit, countUsers, getEffectiveFolderExpiration, getFile, getFolder, getSessionUser, getUserByUsername, isFileReadable, isFolderAvailable } from './db'
-import { clearSessionCookie, getCookie, jsonError, sessionCookie } from './http'
-import { parseRange } from './range'
-import type { Env, FileRecord, R2ObjectBody, ScheduledController, SessionUser, UserRecord } from './types'
+import { hashPassword, newId, nowSeconds, randomToken, sha256Hex, verifyPassword } from './crypto.js'
+import { audit, countUsers, getEffectiveFolderExpiration, getFile, getFolder, getSessionUser, getUserByUsername, isFileReadable, isFolderAvailable } from './db.js'
+import { clearSessionCookie, getCookie, jsonError, sessionCookie } from './http.js'
+import { parseRange } from './range.js'
+import type { Env, FileRecord, R2ObjectBody, ScheduledController, SessionUser, UserRecord } from './types.js'
 
 type Variables = {
   user: SessionUser

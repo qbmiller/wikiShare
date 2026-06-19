@@ -1,5 +1,5 @@
-import { newId, nowSeconds } from './crypto'
-import type { Env, FileRecord, FolderRecord, SessionUser, UserRecord } from './types'
+import { newId, nowSeconds } from './crypto.js'
+import type { Env, FileRecord, FolderRecord, SessionUser, UserRecord } from './types.js'
 
 export async function audit(
   env: Env,
