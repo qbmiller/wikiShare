@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { dateInputToEpoch, epochToDateInput } from '../src/date.js'
-import { getEffectiveFolderExpiration, isFileReadable, isFolderAvailable } from '../src/worker/db.js'
+import { filterVisibleFolders, getEffectiveFolderExpiration, isFileReadable, isFolderAvailable } from '../src/worker/db.js'
 import { restoreFolderTree, trashFolderTree } from '../src/worker/index.js'
 import { parseRange } from '../src/worker/range.js'
 import type { Env, FileRecord, FolderRecord } from '../src/worker/types.js'
@@ -26,6 +26,7 @@ const folders = new Map<string, FolderRecord>([
   ['dated', folder({ id: 'dated', parent_id: 'root', depth: 2, expires_at: now + 100 })],
   ['child', folder({ id: 'child', parent_id: 'dated', depth: 3, expires_at: null })],
   ['expired', folder({ id: 'expired', parent_id: 'root', depth: 2, expires_at: now - 1 })],
+  ['expired-child', folder({ id: 'expired-child', parent_id: 'expired', depth: 3, expires_at: null })],
   ['trashed', folder({ id: 'trashed', parent_id: 'root', depth: 2, expires_at: null, trashed_at: now - 5 })],
 ])
 const env = mockEnv(folders)
@@ -33,8 +34,13 @@ const env = mockEnv(folders)
 assert.equal(await isFolderAvailable(env, 'root', now), true)
 assert.equal(await isFolderAvailable(env, 'child', now), true)
 assert.equal(await isFolderAvailable(env, 'expired', now), false)
+assert.equal(await isFolderAvailable(env, 'expired-child', now), false)
 assert.equal(await isFolderAvailable(env, 'trashed', now), false)
 assert.equal(await getEffectiveFolderExpiration(env, 'child'), now + 100)
+assert.deepEqual(
+  filterVisibleFolders([...folders.values()], now).map((folder) => folder.id),
+  ['root', 'dated', 'child'],
+)
 
 const readableFile = file({ folder_id: 'child' })
 const expiredFile = file({ folder_id: 'child', expires_at: now - 1 })

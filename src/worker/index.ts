@@ -1,9 +1,9 @@
 import { Hono, type Context, type Next } from 'hono'
 import { hashPassword, newId, nowSeconds, randomToken, sha256Hex, verifyPassword } from './crypto.js'
-import { audit, countUsers, getEffectiveFolderExpiration, getFile, getFolder, getSessionUser, getUserByUsername, isFileReadable, isFolderAvailable } from './db.js'
+import { audit, countUsers, filterVisibleFolders, getEffectiveFolderExpiration, getFile, getFolder, getSessionUser, getUserByUsername, isFileReadable, isFolderAvailable } from './db.js'
 import { clearSessionCookie, getCookie, jsonError, sessionCookie } from './http.js'
 import { parseRange } from './range.js'
-import type { Env, FileRecord, R2ObjectBody, ScheduledController, SessionUser, UserRecord } from './types.js'
+import type { Env, FileRecord, FolderRecord, R2ObjectBody, ScheduledController, SessionUser, UserRecord } from './types.js'
 
 type Variables = {
   user: SessionUser
@@ -182,12 +182,10 @@ app.get('/api/folders/tree', async (c) => {
   const folders = await c.env.DB.prepare(
     `select * from folders
      where trashed_at is null
-       and (expires_at is null or expires_at > ?)
      order by depth, name`,
   )
-    .bind(nowSeconds())
-    .all()
-  return c.json(folders.results)
+    .all<FolderRecord>()
+  return c.json(filterVisibleFolders(folders.results, nowSeconds()))
 })
 
 app.post('/api/folders', async (c) => {

@@ -95,6 +95,23 @@ export async function isFileReadable(env: Env, file: FileRecord, now = nowSecond
   return await isFolderAvailable(env, file.folder_id, now)
 }
 
+export function filterVisibleFolders(folders: FolderRecord[], now = nowSeconds()): FolderRecord[] {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+
+  return folders.filter((folder) => {
+    let current: FolderRecord | undefined = folder
+    let guard = 0
+    while (current && guard < 4) {
+      if (current.trashed_at || isExpired(current.expires_at, now)) {
+        return false
+      }
+      current = current.parent_id ? byId.get(current.parent_id) : undefined
+      guard += 1
+    }
+    return true
+  })
+}
+
 function isExpired(expiresAt: number | null, now: number): boolean {
   return expiresAt != null && expiresAt <= now
 }
