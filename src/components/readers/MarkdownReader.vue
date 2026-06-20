@@ -5,10 +5,13 @@ import { api } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import type { SharedFile } from '@/types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   file: SharedFile
   contentUrl: string
-}>()
+  readonly?: boolean
+}>(), {
+  readonly: false,
+})
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -24,8 +27,8 @@ const markdownText = ref('')
 const headings = ref<MarkdownHeading[]>([])
 const loading = ref(true)
 const saving = ref(false)
-const isAdmin = computed(() => auth.user?.role === 'admin')
-const editing = ref(route.query.edit === '1' && auth.user?.role === 'admin')
+const isAdmin = computed(() => !props.readonly && auth.user?.role === 'admin')
+const editing = ref(route.query.edit === '1' && isAdmin.value)
 const error = ref('')
 const savedMessage = ref('')
 const renderedPreview = computed(() => renderMarkdown(markdownText.value))

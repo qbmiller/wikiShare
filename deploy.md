@@ -73,7 +73,7 @@ npx wrangler secret put SESSION_SECRET --config wrangler.local.toml
 
 按终端提示粘贴刚才生成的随机字符串。
 
-## 5. 应用远程 D1 迁移
+## 5. 应用远程 D1 迁移. 改动sql后也要执行
 
 ```bash
 pnpm run db:migrate:remote

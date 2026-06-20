@@ -25,6 +25,11 @@ const folderUploadInput = ref<HTMLInputElement | null>(null)
 const uploadProgress = ref<{ uploaded: number; total: number } | null>(null)
 const isUploadDragging = ref(false)
 const newMarkdownName = ref('')
+const shareDuration = ref(1)
+const shareUnit = ref<'days' | 'hours'>('days')
+const shareMessage = ref('')
+const pendingShare = ref<{ targetType: 'file' | 'folder'; targetId: string; targetName: string } | null>(null)
+const sharing = ref(false)
 const loading = ref(false)
 const error = ref('')
 const draggedFolderId = ref<string | null>(null)
@@ -291,6 +296,53 @@ async function createMarkdownFile() {
     error.value = err instanceof Error ? err.message : '新建 Markdown 失败'
   } finally {
     loading.value = false
+  }
+}
+
+function openShareDialog(targetType: 'file' | 'folder', targetId: string, targetName: string) {
+  pendingShare.value = { targetType, targetId, targetName }
+  shareDuration.value = 1
+  shareUnit.value = 'days'
+  shareMessage.value = ''
+  error.value = ''
+}
+
+function closeShareDialog() {
+  pendingShare.value = null
+  sharing.value = false
+}
+
+async function confirmShare() {
+  if (!pendingShare.value) {
+    return
+  }
+  if (shareDuration.value <= 0) {
+    error.value = '分享有效期必须大于 0。'
+    return
+  }
+
+  sharing.value = true
+  error.value = ''
+  try {
+    const result = await api<{ publicUrl: string; expiresAt: number }>('/api/shares', {
+      method: 'POST',
+      body: JSON.stringify({
+        targetType: pendingShare.value.targetType,
+        targetId: pendingShare.value.targetId,
+        duration: shareDuration.value,
+        unit: shareUnit.value,
+      }),
+    })
+    shareMessage.value = result.publicUrl
+    try {
+      await navigator.clipboard?.writeText(result.publicUrl)
+    } catch {
+      // 剪贴板权限不可用时，仍保留页面上的分享链接。
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '创建分享失败'
+  } finally {
+    sharing.value = false
   }
 }
 
@@ -726,6 +778,8 @@ async function dropOnRoot() {
           <button class="primary-button" type="submit" :disabled="loading || !newMarkdownName.trim()">新建 MD</button>
         </form>
 
+        <button v-if="selectedFolder" class="text-button share-folder-button" type="button" @click="openShareDialog('folder', selectedFolder.id, selectedFolder.name)">分享文件夹</button>
+
         <form
           class="upload-bar"
           :class="{ 'upload-bar-dragging': isUploadDragging }"
@@ -778,6 +832,7 @@ async function dropOnRoot() {
             />
             <div class="row-actions">
               <button class="text-button" type="button" @click="router.push(`/reader/file/${file.id}`)">阅读</button>
+              <button class="text-button" type="button" @click="openShareDialog('file', file.id, file.name)">分享</button>
               <button class="text-button" type="button" @click="downloadFile(file)">
                 <Download :size="14" />
                 下载
@@ -799,6 +854,41 @@ async function dropOnRoot() {
           </div>
           <p v-if="selectedFolderId && files.length === 0" class="empty-state">{{ fileQuery.trim() ? '没有找到匹配的文件。' : '当前文件夹还没有可阅读文档。' }}</p>
         </div>
+      </section>
+    </div>
+
+    <div v-if="pendingShare" class="modal-backdrop" role="presentation" @click.self="closeShareDialog">
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">分享</p>
+            <h2 id="share-dialog-title">{{ pendingShare.targetType === 'file' ? '分享文件' : '分享文件夹' }}</h2>
+          </div>
+          <button class="icon-button" type="button" title="关闭" aria-label="关闭" @click="closeShareDialog">×</button>
+        </header>
+
+        <p class="modal-target" :title="pendingShare.targetName">{{ pendingShare.targetName }}</p>
+
+        <div class="share-controls">
+          <span>有效期</span>
+          <input v-model.number="shareDuration" type="number" min="1" aria-label="分享有效期" />
+          <select v-model="shareUnit" aria-label="分享有效期单位">
+            <option value="days">天</option>
+            <option value="hours">小时</option>
+          </select>
+        </div>
+
+        <p v-if="error" class="form-message">{{ error }}</p>
+        <div v-if="shareMessage" class="share-result">
+          <span>分享链接</span>
+          <input :value="shareMessage" readonly aria-label="分享链接" />
+          <a class="text-button" :href="shareMessage" target="_blank" rel="noreferrer">打开</a>
+        </div>
+
+        <footer class="modal-actions">
+          <button class="text-button" type="button" @click="closeShareDialog">取消</button>
+          <button class="primary-button" type="button" :disabled="sharing" @click="confirmShare">{{ shareMessage ? '重新生成' : '确定' }}</button>
+        </footer>
       </section>
     </div>
   </section>

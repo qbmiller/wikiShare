@@ -49,6 +49,38 @@ export interface PaginatedFiles {
 
 export type PdfFile = SharedFile
 
+export interface ShareRecord {
+  id: string
+  token: string
+  target_type: 'file' | 'folder'
+  target_id: string
+  target_name?: string
+  expires_at: number
+  cancelled_at: number | null
+  created_by: string
+  created_at: number
+  public_url: string
+}
+
+export interface PublicShareMetadata {
+  token: string
+  target_type: 'file' | 'folder'
+  target_id: string
+  target_name: string
+  expires_at: number
+}
+
+export interface PublicShareFile {
+  share: PublicShareMetadata
+  file: SharedFile
+}
+
+export interface PublicShareFolder {
+  share: PublicShareMetadata
+  folder: Folder
+  files: SharedFile[]
+}
+
 export interface ApiError {
   error?: {
     code: string

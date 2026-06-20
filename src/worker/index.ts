@@ -3,7 +3,7 @@ import { hashPassword, newId, nowSeconds, randomToken, sha256Hex, verifyPassword
 import { audit, countUsers, filterVisibleFolders, getEffectiveFolderExpiration, getFile, getFolder, getSessionUser, getUserByUsername, isFileReadable, isFolderAvailable } from './db.js'
 import { clearSessionCookie, getCookie, jsonError, sessionCookie } from './http.js'
 import { parseRange } from './range.js'
-import type { Env, FileRecord, FolderRecord, R2ObjectBody, ScheduledController, SessionUser, UserRecord } from './types.js'
+import type { Env, FileRecord, FolderRecord, R2ObjectBody, ScheduledController, SessionUser, ShareRecord, UserRecord } from './types.js'
 
 type Variables = {
   user: SessionUser
@@ -198,7 +198,7 @@ app.post('/api/auth/logout', async (c) => {
 })
 
 app.use('/api/*', async (c, next) => {
-  if (c.req.path === '/api/health' || c.req.path === '/api/auth/login' || c.req.path === '/api/setup/admin') {
+  if (c.req.path === '/api/health' || c.req.path === '/api/auth/login' || c.req.path === '/api/setup/admin' || c.req.path.startsWith('/api/public/shares/')) {
     return await next()
   }
 
@@ -590,6 +590,146 @@ app.get('/api/files/:id/content', async (c) => {
     return jsonError(c, 404, 'file_unavailable', '文件不存在或不可访问。')
   }
 
+  await audit(c.env, { userId: c.get('user').id, action: 'file_read', targetType: 'file', targetId: file.id })
+  return await streamFile(c, file)
+})
+
+app.post('/api/shares', requireAdmin, async (c) => {
+  const body = await c.req.json<{ targetType?: 'file' | 'folder'; targetId?: string; duration?: number; unit?: 'days' | 'hours' }>()
+  const targetType = body.targetType
+  const targetId = body.targetId ?? ''
+  const durationSeconds = parseShareDuration(body.duration ?? 1, body.unit ?? 'days')
+  if ((targetType !== 'file' && targetType !== 'folder') || !targetId || durationSeconds == null) {
+    return jsonError(c, 400, 'invalid_share', '请选择文件或文件夹，并设置有效期。')
+  }
+
+  if (targetType === 'file') {
+    const file = await getFile(c.env, targetId)
+    if (!file || file.deleted_at || file.trashed_at) {
+      return jsonError(c, 404, 'target_not_found', '文件不存在或不可分享。')
+    }
+  } else {
+    const folder = await getFolder(c.env, targetId)
+    if (!folder || folder.trashed_at) {
+      return jsonError(c, 404, 'target_not_found', '文件夹不存在或不可分享。')
+    }
+  }
+
+  const id = newId()
+  const token = randomToken()
+  const createdAt = nowSeconds()
+  const expiresAt = createdAt + durationSeconds
+  await c.env.DB.prepare(
+    `insert into shares(id, token, target_type, target_id, expires_at, cancelled_at, created_by, created_at)
+     values (?, ?, ?, ?, ?, null, ?, ?)`,
+  )
+    .bind(id, token, targetType, targetId, expiresAt, c.get('user').id, createdAt)
+    .run()
+
+  await audit(c.env, { userId: c.get('user').id, action: 'share_created', targetType, targetId, detail: { shareId: id, expiresAt } })
+  return c.json({ id, token, publicUrl: publicShareUrl(c, token), expiresAt }, 201)
+})
+
+app.get('/api/shares', requireAdmin, async (c) => {
+  const now = nowSeconds()
+  const rows = await c.env.DB.prepare(
+    `select shares.*,
+            coalesce(files.name, folders.name, shares.target_id) as target_name
+     from shares
+     left join files on shares.target_type = 'file' and shares.target_id = files.id
+     left join folders on shares.target_type = 'folder' and shares.target_id = folders.id
+     where shares.cancelled_at is null
+       and shares.expires_at > ?
+     order by shares.created_at desc`,
+  )
+    .bind(now)
+    .all<ShareRecord & { target_name: string }>()
+
+  return c.json(rows.results.map((share) => ({
+    ...share,
+    public_url: publicShareUrl(c, share.token),
+  })))
+})
+
+app.post('/api/shares/:id/cancel', requireAdmin, async (c) => {
+  const id = c.req.param('id')
+  const share = await c.env.DB.prepare('select * from shares where id = ?').bind(id).first<ShareRecord>()
+  if (!share || share.cancelled_at != null) {
+    return jsonError(c, 404, 'share_not_found', '分享不存在或已取消。')
+  }
+
+  await c.env.DB.prepare('update shares set cancelled_at = ? where id = ?').bind(nowSeconds(), id).run()
+  await audit(c.env, { userId: c.get('user').id, action: 'share_cancelled', targetType: share.target_type, targetId: share.target_id, detail: { shareId: id } })
+  return c.json({ ok: true })
+})
+
+app.get('/api/public/shares/:token', async (c) => {
+  const share = await getActiveShare(c.env, c.req.param('token'))
+  if (!share) {
+    return jsonError(c, 404, 'share_unavailable', '分享不存在或已过期。')
+  }
+
+  if (share.target_type === 'file') {
+    const file = await getFile(c.env, share.target_id)
+    if (!file || file.deleted_at || file.trashed_at) {
+      return jsonError(c, 404, 'share_target_unavailable', '分享内容不可访问。')
+    }
+    return c.json({ share: publicShareMeta(share, file.name), file: publicFile(file) })
+  }
+
+  const folder = await getFolder(c.env, share.target_id)
+  if (!folder || folder.trashed_at) {
+    return jsonError(c, 404, 'share_target_unavailable', '分享内容不可访问。')
+  }
+  return c.json({ share: publicShareMeta(share, folder.name), folder })
+})
+
+app.get('/api/public/shares/:token/folder', async (c) => {
+  const share = await getActiveShare(c.env, c.req.param('token'))
+  if (!share || share.target_type !== 'folder') {
+    return jsonError(c, 404, 'share_unavailable', '分享不存在或已过期。')
+  }
+
+  const folder = await getFolder(c.env, share.target_id)
+  if (!folder || folder.trashed_at) {
+    return jsonError(c, 404, 'share_target_unavailable', '分享内容不可访问。')
+  }
+
+  const now = nowSeconds()
+  const files = await c.env.DB.prepare(
+    `select * from files
+     where folder_id = ?
+       and trashed_at is null
+       and deleted_at is null
+       and (expires_at is null or expires_at > ?)
+     order by created_at desc`,
+  )
+    .bind(folder.id, now)
+    .all<FileRecord>()
+  return c.json({ share: publicShareMeta(share, folder.name), folder, files: files.results.map(publicFile) })
+})
+
+app.get('/api/public/shares/:token/files/:fileId/content', async (c) => {
+  const share = await getActiveShare(c.env, c.req.param('token'))
+  if (!share) {
+    return jsonError(c, 404, 'share_unavailable', '分享不存在或已过期。')
+  }
+
+  const file = await getFile(c.env, c.req.param('fileId'))
+  if (!file || file.deleted_at || file.trashed_at) {
+    return jsonError(c, 404, 'file_unavailable', '文件不存在或不可访问。')
+  }
+  if (share.target_type === 'file' && share.target_id !== file.id) {
+    return jsonError(c, 404, 'file_unavailable', '文件不存在或不可访问。')
+  }
+  if (share.target_type === 'folder' && share.target_id !== file.folder_id) {
+    return jsonError(c, 404, 'file_unavailable', '文件不存在或不可访问。')
+  }
+
+  return await streamFile(c, file)
+})
+
+async function streamFile(c: Context<{ Bindings: Env; Variables: Variables }>, file: FileRecord): Promise<Response> {
   const head = await c.env.PDF_BUCKET.head(file.r2_key)
   if (!head) {
     return jsonError(c, 404, 'object_missing', '文件对象不存在。')
@@ -621,9 +761,8 @@ app.get('/api/files/:id/content', async (c) => {
     return jsonError(c, 404, 'object_missing', '文件对象不存在。')
   }
 
-  await audit(c.env, { userId: c.get('user').id, action: 'file_read', targetType: 'file', targetId: file.id })
   return new Response(object.body, { status, headers })
-})
+}
 
 app.post('/api/files/:id/trash', async (c) => {
   const id = c.req.param('id')
@@ -717,6 +856,25 @@ function parseVisibleAfter(value: string | undefined, fallback: number): number 
   return parsed
 }
 
+export function parseShareDuration(value: unknown, unit: unknown): number | null {
+  const amount = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return null
+  }
+  if (unit === 'hours') {
+    return amount * 60 * 60
+  }
+  if (unit === 'days') {
+    return amount * 24 * 60 * 60
+  }
+  return null
+}
+
+function publicShareUrl(c: Context<{ Bindings: Env; Variables: Variables }>, token: string): string {
+  const url = new URL(c.req.url)
+  return `${url.origin}/share/${token}`
+}
+
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`)
 }
@@ -744,6 +902,28 @@ function publicFile(file: FileRecord) {
     expires_at: file.expires_at,
     created_at: file.created_at,
   }
+}
+
+function publicShareMeta(share: ShareRecord, targetName: string) {
+  return {
+    token: share.token,
+    target_type: share.target_type,
+    target_id: share.target_id,
+    target_name: targetName,
+    expires_at: share.expires_at,
+  }
+}
+
+async function getActiveShare(env: Env, token: string): Promise<ShareRecord | null> {
+  const now = nowSeconds()
+  return await env.DB.prepare(
+    `select * from shares
+     where token = ?
+       and cancelled_at is null
+       and expires_at > ?`,
+  )
+    .bind(token, now)
+    .first<ShareRecord>()
 }
 
 function buildFolderPathMap(folders: FolderRecord[]): Map<string, string> {

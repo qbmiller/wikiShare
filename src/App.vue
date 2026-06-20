@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ClipboardList, FileText, LogOut, PanelLeftClose, PanelLeftOpen, Recycle, Settings, Users } from 'lucide-vue-next'
+import { ClipboardList, FileText, LogOut, PanelLeftClose, PanelLeftOpen, Recycle, Settings, Share2, Users } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
@@ -67,6 +67,10 @@ watch(
         <RouterLink v-if="auth.user.role === 'admin'" to="/trash" class="nav-item" title="回收站">
           <Recycle :size="18" />
           <span class="sidebar-text">回收站</span>
+        </RouterLink>
+        <RouterLink v-if="auth.user.role === 'admin'" to="/shares" class="nav-item" title="分享">
+          <Share2 :size="18" />
+          <span class="sidebar-text">分享</span>
         </RouterLink>
         <RouterLink v-if="auth.user.role === 'admin'" to="/users" class="nav-item" title="用户">
           <Users :size="18" />

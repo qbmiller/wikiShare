@@ -52,6 +52,17 @@ export interface FileRecord {
   created_at: number
 }
 
+export interface ShareRecord {
+  id: string
+  token: string
+  target_type: 'file' | 'folder'
+  target_id: string
+  expires_at: number
+  cancelled_at: number | null
+  created_by: string
+  created_at: number
+}
+
 export interface D1Database {
   prepare(query: string): D1PreparedStatement
   batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>

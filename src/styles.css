@@ -347,6 +347,11 @@ h2 {
   transform: translateY(-1px);
 }
 
+.browse-file-card.active {
+  border-color: var(--docs-accent);
+  background: var(--docs-accent-soft);
+}
+
 .file-card-icon {
   display: grid;
   width: 44px;
@@ -378,6 +383,13 @@ h2 {
 .file-card-action {
   color: var(--docs-accent);
   font-weight: 700;
+}
+
+.public-share-files {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  padding: 0 30px;
 }
 
 .panel,
@@ -524,6 +536,90 @@ h2 {
 
 .markdown-create-form {
   grid-template-columns: minmax(180px, 1fr) auto;
+}
+
+.share-folder-button {
+  justify-self: start;
+}
+
+.share-controls {
+  display: grid;
+  grid-template-columns: auto 90px 90px;
+  align-items: center;
+  justify-content: start;
+  gap: 10px;
+}
+
+.share-controls span {
+  color: var(--docs-muted);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.success-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--docs-accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.38);
+}
+
+.modal-panel {
+  display: grid;
+  width: min(520px, 100%);
+  gap: 16px;
+  border: 1px solid var(--docs-border);
+  border-radius: 8px;
+  padding: 20px;
+  background: var(--docs-surface);
+  box-shadow: var(--docs-shadow);
+}
+
+.modal-header,
+.modal-actions,
+.share-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-target {
+  overflow: hidden;
+  color: var(--docs-text);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-actions {
+  justify-content: flex-end;
+}
+
+.share-result {
+  align-items: center;
+}
+
+.share-result span {
+  flex: 0 0 auto;
+  color: var(--docs-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.share-result input {
+  min-width: 0;
 }
 
 input,
@@ -783,13 +879,18 @@ textarea {
 
 .file-panel .file-table-head,
 .file-panel .file-row {
-  grid-template-columns: minmax(0, 1fr) 120px 170px 180px;
+  grid-template-columns: minmax(0, 1fr) 120px 170px 230px;
   gap: 14px;
 }
 
 .user-row,
 .user-form + .panel .file-table-head {
   grid-template-columns: minmax(140px, 1fr) 120px 150px 90px 150px 240px;
+}
+
+.shares-table-head,
+.shares-row {
+  grid-template-columns: minmax(0, 1fr) 90px 170px 260px;
 }
 
 .file-row {
@@ -1379,10 +1480,16 @@ canvas {
   .markdown-reader-layout,
   .markdown-editor-layout,
   .markdown-create-form,
+  .share-controls,
   .user-toolbar,
   .user-form,
   .inline-form {
     grid-template-columns: 1fr;
+  }
+
+  .share-result {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .markdown-outline {
