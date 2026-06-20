@@ -55,6 +55,7 @@ export interface FileRecord {
 export interface ShareRecord {
   id: string
   token: string
+  url_id: string | null
   target_type: 'file' | 'folder'
   target_id: string
   expires_at: number

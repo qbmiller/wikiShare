@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { dateInputToEpoch, epochToDateInput } from '../src/date.js'
 import { hashPassword, verifyPassword } from '../src/worker/crypto.js'
 import { filterVisibleFolders, getEffectiveFolderExpiration, isFileReadable, isFolderAvailable } from '../src/worker/db.js'
-import { getMaxUploadBytes, parseShareDuration, restoreFolderTree, trashFolderTree } from '../src/worker/index.js'
+import { buildShareUrlId, getMaxUploadBytes, parseShareDuration, restoreFolderTree, trashFolderTree } from '../src/worker/index.js'
 import { parseRange } from '../src/worker/range.js'
 import type { Env, FileRecord, FolderRecord } from '../src/worker/types.js'
 
@@ -27,6 +27,7 @@ assert.equal(parseShareDuration(1, 'days'), 86_400)
 assert.equal(parseShareDuration(2, 'hours'), 7_200)
 assert.equal(parseShareDuration(0, 'days'), null)
 assert.equal(parseShareDuration(1, 'minutes'), null)
+assert.match(buildShareUrlId(), /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
 
 const passwordHash = await hashPassword('correct-password')
 assert.equal(passwordHash.split('$')[1], '100000')

@@ -52,6 +52,7 @@ export type PdfFile = SharedFile
 export interface ShareRecord {
   id: string
   token: string
+  url_id: string | null
   target_type: 'file' | 'folder'
   target_id: string
   target_name?: string
@@ -64,6 +65,7 @@ export interface ShareRecord {
 
 export interface PublicShareMetadata {
   token: string
+  url_id: string | null
   target_type: 'file' | 'folder'
   target_id: string
   target_name: string

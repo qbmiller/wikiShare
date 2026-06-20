@@ -15,7 +15,8 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', component: LoginView },
-    { path: '/share/:token', component: PublicShareView },
+    { path: '/share/:shareKey/file/:fileId', component: PublicShareView },
+    { path: '/share/:shareKey/:fileName?', component: PublicShareView },
     { path: '/', component: BrowseView, meta: { requiresAuth: true } },
     { path: '/manage', component: DashboardView, meta: { requiresAuth: true, requiresAdmin: true } },
     { path: '/reader/file/:id', component: ReaderView, meta: { requiresAuth: true } },

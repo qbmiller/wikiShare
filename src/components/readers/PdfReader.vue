@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { markRaw, nextTick, onMounted, ref, shallowRef } from 'vue'
+import { markRaw, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Columns2, RotateCw, ScrollText, ZoomIn, ZoomOut } from 'lucide-vue-next'
 import * as pdfjsLib from 'pdfjs-dist'
@@ -24,24 +24,57 @@ const rotation = ref(0)
 const loading = ref(true)
 const error = ref('')
 const viewMode = ref<'single' | 'scroll'>('scroll')
+let loadVersion = 0
 
-onMounted(async () => {
+watch(
+  () => [props.file.id, props.contentUrl],
+  () => {
+    void loadPdf()
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  pdf.value?.destroy()
+})
+
+async function loadPdf() {
+  const version = ++loadVersion
+  loading.value = true
+  error.value = ''
+  pageNumber.value = 1
+  pageInput.value = '1'
+  pageCount.value = 0
+  scrollCanvases.value = []
+  pdf.value?.destroy()
+  pdf.value = null
+  clearCanvas(canvas.value)
+
   try {
     const loadedPdf = await pdfjsLib.getDocument({
       url: props.contentUrl,
       withCredentials: true,
       rangeChunkSize: 65536,
     }).promise
+    if (version !== loadVersion) {
+      loadedPdf.destroy()
+      return
+    }
     pdf.value = markRaw(loadedPdf)
     pageCount.value = pdf.value.numPages
     pageInput.value = String(pageNumber.value)
     await renderCurrentMode()
   } catch (err) {
+    if (version !== loadVersion) {
+      return
+    }
     error.value = err instanceof Error ? err.message : 'PDF 加载失败'
   } finally {
-    loading.value = false
+    if (version === loadVersion) {
+      loading.value = false
+    }
   }
-})
+}
 
 async function renderPage() {
   if (!pdf.value || !canvas.value) {
@@ -138,6 +171,18 @@ function setScrollCanvas(element: Element | ComponentPublicInstance | null, inde
   if (element instanceof HTMLCanvasElement) {
     scrollCanvases.value[index] = element
   }
+}
+
+function clearCanvas(target: HTMLCanvasElement | null) {
+  if (!target) {
+    return
+  }
+  const context = target.getContext('2d')
+  if (context) {
+    context.clearRect(0, 0, target.width, target.height)
+  }
+  target.width = 0
+  target.height = 0
 }
 
 async function scrollToPage(page: number) {

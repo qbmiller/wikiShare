@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import VueOfficeDocx from '@vue-office/docx/lib/v3/index.js'
 import '@vue-office/docx/lib/v3/index.css'
 import type { SharedFile } from '@/types'
@@ -11,9 +11,20 @@ const props = defineProps<{
 
 const loading = ref(true)
 const error = ref('')
+const renderKey = ref(0)
 const requestOptions = {
   credentials: 'include',
 }
+
+watch(
+  () => [props.file.id, props.contentUrl],
+  () => {
+    loading.value = true
+    error.value = ''
+    renderKey.value += 1
+  },
+  { immediate: true },
+)
 
 function renderedHandler() {
   loading.value = false
@@ -31,6 +42,7 @@ function errorHandler() {
     <p v-if="error" class="form-message">{{ error }}</p>
     <vue-office-docx
       v-if="!error"
+      :key="renderKey"
       class="office-document"
       :src="contentUrl"
       :request-options="requestOptions"

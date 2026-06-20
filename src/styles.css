@@ -385,11 +385,63 @@ h2 {
   font-weight: 700;
 }
 
-.public-share-files {
+.public-folder-layout {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-  padding: 0 30px;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  gap: 18px;
+  padding: 0 30px 30px;
+}
+
+.public-folder-sidebar {
+  position: sticky;
+  top: 92px;
+  display: grid;
+  align-self: start;
+  max-height: calc(100vh - 120px);
+  gap: 8px;
+  overflow: auto;
+  border: 1px solid var(--docs-border);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--docs-surface);
+}
+
+.public-folder-sidebar h2 {
+  margin-bottom: 6px;
+}
+
+.public-file-list-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 10px;
+  background: transparent;
+  color: var(--docs-text);
+  text-align: left;
+}
+
+.public-file-list-item:hover,
+.public-file-list-item.active {
+  border-color: var(--docs-accent);
+  background: var(--docs-accent-soft);
+}
+
+.public-file-list-item strong,
+.public-file-list-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.public-file-list-item span {
+  color: var(--docs-muted);
+  font-size: 12px;
+}
+
+.public-folder-reader {
+  min-width: 0;
 }
 
 .panel,
@@ -1490,6 +1542,16 @@ canvas {
   .share-result {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .public-folder-layout {
+    grid-template-columns: 1fr;
+    padding: 0 18px 18px;
+  }
+
+  .public-folder-sidebar {
+    position: static;
+    max-height: 280px;
   }
 
   .markdown-outline {

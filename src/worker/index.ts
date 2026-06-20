@@ -617,17 +617,18 @@ app.post('/api/shares', requireAdmin, async (c) => {
 
   const id = newId()
   const token = randomToken()
+  const urlId = buildShareUrlId()
   const createdAt = nowSeconds()
   const expiresAt = createdAt + durationSeconds
   await c.env.DB.prepare(
-    `insert into shares(id, token, target_type, target_id, expires_at, cancelled_at, created_by, created_at)
-     values (?, ?, ?, ?, ?, null, ?, ?)`,
+    `insert into shares(id, token, url_id, target_type, target_id, expires_at, cancelled_at, created_by, created_at)
+     values (?, ?, ?, ?, ?, ?, null, ?, ?)`,
   )
-    .bind(id, token, targetType, targetId, expiresAt, c.get('user').id, createdAt)
+    .bind(id, token, urlId, targetType, targetId, expiresAt, c.get('user').id, createdAt)
     .run()
 
   await audit(c.env, { userId: c.get('user').id, action: 'share_created', targetType, targetId, detail: { shareId: id, expiresAt } })
-  return c.json({ id, token, publicUrl: publicShareUrl(c, token), expiresAt }, 201)
+  return c.json({ id, token, urlId, publicUrl: publicShareUrl(c, { token, url_id: urlId }), expiresAt }, 201)
 })
 
 app.get('/api/shares', requireAdmin, async (c) => {
@@ -647,7 +648,7 @@ app.get('/api/shares', requireAdmin, async (c) => {
 
   return c.json(rows.results.map((share) => ({
     ...share,
-    public_url: publicShareUrl(c, share.token),
+    public_url: publicShareUrl(c, share),
   })))
 })
 
@@ -663,8 +664,8 @@ app.post('/api/shares/:id/cancel', requireAdmin, async (c) => {
   return c.json({ ok: true })
 })
 
-app.get('/api/public/shares/:token', async (c) => {
-  const share = await getActiveShare(c.env, c.req.param('token'))
+app.get('/api/public/shares/:key', async (c) => {
+  const share = await getActiveShare(c.env, c.req.param('key'))
   if (!share) {
     return jsonError(c, 404, 'share_unavailable', '分享不存在或已过期。')
   }
@@ -684,8 +685,8 @@ app.get('/api/public/shares/:token', async (c) => {
   return c.json({ share: publicShareMeta(share, folder.name), folder })
 })
 
-app.get('/api/public/shares/:token/folder', async (c) => {
-  const share = await getActiveShare(c.env, c.req.param('token'))
+app.get('/api/public/shares/:key/folder', async (c) => {
+  const share = await getActiveShare(c.env, c.req.param('key'))
   if (!share || share.target_type !== 'folder') {
     return jsonError(c, 404, 'share_unavailable', '分享不存在或已过期。')
   }
@@ -709,8 +710,31 @@ app.get('/api/public/shares/:token/folder', async (c) => {
   return c.json({ share: publicShareMeta(share, folder.name), folder, files: files.results.map(publicFile) })
 })
 
-app.get('/api/public/shares/:token/files/:fileId/content', async (c) => {
-  const share = await getActiveShare(c.env, c.req.param('token'))
+app.get('/api/public/shares/:key/files/by-name/:fileName', async (c) => {
+  const share = await getActiveShare(c.env, c.req.param('key'))
+  if (!share || share.target_type !== 'folder') {
+    return jsonError(c, 404, 'share_unavailable', '分享不存在或已过期。')
+  }
+
+  const fileName = decodeURIComponent(c.req.param('fileName'))
+  const file = await c.env.DB.prepare(
+    `select * from files
+     where folder_id = ?
+       and name = ?
+       and trashed_at is null
+       and deleted_at is null
+     limit 1`,
+  )
+    .bind(share.target_id, fileName)
+    .first<FileRecord>()
+  if (!file) {
+    return jsonError(c, 404, 'file_unavailable', '文件不存在或不可访问。')
+  }
+  return c.json(publicFile(file))
+})
+
+app.get('/api/public/shares/:key/files/:fileId/content', async (c) => {
+  const share = await getActiveShare(c.env, c.req.param('key'))
   if (!share) {
     return jsonError(c, 404, 'share_unavailable', '分享不存在或已过期。')
   }
@@ -870,9 +894,25 @@ export function parseShareDuration(value: unknown, unit: unknown): number | null
   return null
 }
 
-function publicShareUrl(c: Context<{ Bindings: Env; Variables: Variables }>, token: string): string {
-  const url = new URL(c.req.url)
-  return `${url.origin}/share/${token}`
+export function buildShareUrlId(): string {
+  return newId()
+}
+
+function publicShareUrl(c: Context<{ Bindings: Env; Variables: Variables }>, share: Pick<ShareRecord, 'token' | 'url_id'>): string {
+  const origin = getPublicAppOrigin(c)
+  return `${origin}/share/${share.url_id ?? share.token}`
+}
+
+function getPublicAppOrigin(c: Context<{ Bindings: Env; Variables: Variables }>): string {
+  const requestOrigin = c.req.header('Origin')?.trim()
+  if (requestOrigin) {
+    try {
+      return new URL(requestOrigin).origin
+    } catch {
+      // Fall back to the request URL if the Origin header is malformed.
+    }
+  }
+  return new URL(c.req.url).origin
 }
 
 function escapeLike(value: string): string {
@@ -907,6 +947,7 @@ function publicFile(file: FileRecord) {
 function publicShareMeta(share: ShareRecord, targetName: string) {
   return {
     token: share.token,
+    url_id: share.url_id,
     target_type: share.target_type,
     target_id: share.target_id,
     target_name: targetName,
@@ -914,15 +955,15 @@ function publicShareMeta(share: ShareRecord, targetName: string) {
   }
 }
 
-async function getActiveShare(env: Env, token: string): Promise<ShareRecord | null> {
+async function getActiveShare(env: Env, key: string): Promise<ShareRecord | null> {
   const now = nowSeconds()
   return await env.DB.prepare(
     `select * from shares
-     where token = ?
+     where (token = ? or url_id = ?)
        and cancelled_at is null
        and expires_at > ?`,
   )
-    .bind(token, now)
+    .bind(key, key, now)
     .first<ShareRecord>()
 }
 
