@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/api'
+import DocumentReader from '@/components/readers/DocumentReader.vue'
 import ImageReader from '@/components/readers/ImageReader.vue'
 import MarkdownReader from '@/components/readers/MarkdownReader.vue'
 import PdfReader from '@/components/readers/PdfReader.vue'
 import PresentationReader from '@/components/readers/PresentationReader.vue'
+import SpreadsheetReader from '@/components/readers/SpreadsheetReader.vue'
 import UnsupportedReader from '@/components/readers/UnsupportedReader.vue'
 import type { SharedFile } from '@/types'
 
@@ -31,6 +33,12 @@ const readerComponent = computed(() => {
   if (isPresentationFile(file.value)) {
     return PresentationReader
   }
+  if (isDocumentFile(file.value)) {
+    return DocumentReader
+  }
+  if (isSpreadsheetFile(file.value)) {
+    return SpreadsheetReader
+  }
   return UnsupportedReader
 })
 
@@ -45,7 +53,15 @@ onMounted(async () => {
 })
 
 function isPresentationFile(file: SharedFile): boolean {
-  return file.mime_type === 'application/vnd.ms-powerpoint' || file.mime_type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  return file.mime_type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+}
+
+function isDocumentFile(file: SharedFile): boolean {
+  return file.mime_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+}
+
+function isSpreadsheetFile(file: SharedFile): boolean {
+  return file.mime_type === 'application/vnd.ms-excel' || file.mime_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 }
 </script>
 

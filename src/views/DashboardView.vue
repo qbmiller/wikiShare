@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Folder, FolderPlus, Upload } from 'lucide-vue-next'
+import { Download, Folder, FolderPlus, Upload } from 'lucide-vue-next'
 import { api } from '@/api'
 import { dateInputToEpoch, epochToDateInput, formatDate } from '@/date'
 import type { Folder as FolderItem, SharedFile } from '@/types'
@@ -33,6 +33,9 @@ const acceptedFileTypes = [
   'image/gif',
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.pdf',
   '.md',
   '.markdown',
@@ -43,6 +46,9 @@ const acceptedFileTypes = [
   '.gif',
   '.ppt',
   '.pptx',
+  '.docx',
+  '.xls',
+  '.xlsx',
 ].join(',')
 
 type FolderTreeNode = FolderItem & {
@@ -227,6 +233,15 @@ async function trashFile(file: SharedFile) {
   await loadFiles()
 }
 
+function downloadFile(file: SharedFile) {
+  const link = document.createElement('a')
+  link.href = `/api/files/${file.id}/content?download=1`
+  link.download = file.name
+  document.body.append(link)
+  link.click()
+  link.remove()
+}
+
 async function trashFolder(folder: FolderItem) {
   await api(`/api/folders/${folder.id}/trash`, { method: 'POST' })
   if (selectedFolderId.value === folder.id) {
@@ -291,11 +306,25 @@ function formatFileKind(file: SharedFile): string {
   if (isPresentationFile(file)) {
     return 'PPT'
   }
+  if (isDocumentFile(file)) {
+    return 'Word'
+  }
+  if (isSpreadsheetFile(file)) {
+    return 'Excel'
+  }
   return '文件'
 }
 
 function isPresentationFile(file: SharedFile): boolean {
   return file.mime_type === 'application/vnd.ms-powerpoint' || file.mime_type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+}
+
+function isDocumentFile(file: SharedFile): boolean {
+  return file.mime_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+}
+
+function isSpreadsheetFile(file: SharedFile): boolean {
+  return file.mime_type === 'application/vnd.ms-excel' || file.mime_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 }
 
 function openDatePicker(event: MouseEvent) {
@@ -619,6 +648,10 @@ async function dropOnRoot() {
             />
             <div class="row-actions">
               <button class="text-button" type="button" @click="router.push(`/reader/file/${file.id}`)">阅读</button>
+              <button class="text-button" type="button" @click="downloadFile(file)">
+                <Download :size="14" />
+                下载
+              </button>
               <button class="text-button danger-text" type="button" @click="trashFile(file)">回收</button>
             </div>
           </div>

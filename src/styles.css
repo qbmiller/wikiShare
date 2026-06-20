@@ -1066,39 +1066,35 @@ textarea {
   box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
 }
 
-.presentation-stage {
+.office-reader {
   position: relative;
   display: grid;
   min-height: calc(100vh - 150px);
-  place-items: center;
+  align-content: start;
   overflow: auto;
   border: 1px solid #d9d1c2;
   border-radius: 8px;
-  padding: 28px;
+  padding: 20px;
   background: #fffdfa;
 }
 
-.presentation-preview {
-  display: grid;
-  width: min(560px, 100%);
-  gap: 12px;
-  justify-items: start;
+.office-document {
+  min-height: calc(100vh - 210px);
+  background: #ffffff;
 }
 
-.presentation-preview strong {
-  display: grid;
-  width: 64px;
-  height: 64px;
-  place-items: center;
-  border-radius: 8px;
-  background: #1f6f54;
-  color: #ffffff;
-  font-size: 18px;
+.office-document,
+.office-document * {
+  max-width: 100%;
 }
 
-.presentation-preview p {
-  color: #536158;
-  line-height: 1.65;
+.spreadsheet-reader {
+  padding: 0;
+}
+
+.spreadsheet-reader .empty-state,
+.spreadsheet-reader .form-message {
+  margin: 20px;
 }
 
 canvas {

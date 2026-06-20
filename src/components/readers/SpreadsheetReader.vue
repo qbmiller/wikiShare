@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import VueOfficePptx from '@vue-office/pptx/lib/v3/index.js'
+import VueOfficeExcel from '@vue-office/excel/lib/v3/index.js'
+import '@vue-office/excel/lib/v3/index.css'
 import type { SharedFile } from '@/types'
 
 const props = defineProps<{
@@ -12,6 +13,9 @@ const loading = ref(true)
 const error = ref('')
 const requestOptions = {
   credentials: 'include',
+}
+const options = {
+  showContextmenu: false,
 }
 
 function renderedHandler() {
@@ -25,14 +29,15 @@ function errorHandler() {
 </script>
 
 <template>
-  <section class="reader-format office-reader">
-    <p v-if="loading" class="empty-state">正在加载 PPTX...</p>
+  <section class="reader-format office-reader spreadsheet-reader">
+    <p v-if="loading" class="empty-state">正在加载 Excel...</p>
     <p v-if="error" class="form-message">{{ error }}</p>
-    <vue-office-pptx
+    <vue-office-excel
       v-if="!error"
       class="office-document"
       :src="contentUrl"
       :request-options="requestOptions"
+      :options="options"
       @rendered="renderedHandler"
       @error="errorHandler"
     />

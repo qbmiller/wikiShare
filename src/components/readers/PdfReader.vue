@@ -23,7 +23,7 @@ const scale = ref(1.1)
 const rotation = ref(0)
 const loading = ref(true)
 const error = ref('')
-const viewMode = ref<'single' | 'scroll'>('single')
+const viewMode = ref<'single' | 'scroll'>('scroll')
 
 onMounted(async () => {
   try {

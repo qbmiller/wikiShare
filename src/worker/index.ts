@@ -87,6 +87,30 @@ const SUPPORTED_FILE_TYPES: SupportedFileType[] = [
     r2Extension: 'pptx',
     validate: isZipPackage,
   },
+  {
+    kind: 'document',
+    extensions: ['.docx'],
+    mimeTypes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip', 'application/octet-stream'],
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    r2Extension: 'docx',
+    validate: isZipPackage,
+  },
+  {
+    kind: 'spreadsheet',
+    extensions: ['.xls'],
+    mimeTypes: ['application/vnd.ms-excel', 'application/octet-stream'],
+    contentType: 'application/vnd.ms-excel',
+    r2Extension: 'xls',
+    validate: isOleCompoundFile,
+  },
+  {
+    kind: 'spreadsheet',
+    extensions: ['.xlsx'],
+    mimeTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip', 'application/octet-stream'],
+    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    r2Extension: 'xlsx',
+    validate: isZipPackage,
+  },
 ]
 
 app.get('/api/health', (c) => c.json({ ok: true, service: 'cfshare' }))
@@ -544,11 +568,12 @@ app.get('/api/files/:id/content', async (c) => {
 
   const contentType = normalizeStoredContentType(file.mime_type)
   const range = parseRange(c.req.header('Range') ?? null, head.size)
+  const dispositionType = c.req.query('download') === '1' ? 'attachment' : 'inline'
   const headers = new Headers({
     'Accept-Ranges': 'bytes',
     'Content-Type': contentType,
     'Cache-Control': 'private, no-store',
-    'Content-Disposition': `inline; filename="${encodeURIComponent(file.name)}"`,
+    'Content-Disposition': contentDisposition(dispositionType, file.name),
   })
 
   let object: R2ObjectBody | null
@@ -778,6 +803,11 @@ function normalizeStoredContentType(mimeType: string): string {
     return 'text/markdown; charset=utf-8'
   }
   return mimeType || 'application/octet-stream'
+}
+
+function contentDisposition(type: 'inline' | 'attachment', fileName: string): string {
+  const fallbackName = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_') || 'download'
+  return `${type}; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
 }
 
 function normalizeMarkdownFileName(name: string | undefined): string {
