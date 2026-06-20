@@ -40,6 +40,13 @@ export interface SharedFile {
   path?: string
 }
 
+export interface PaginatedFiles {
+  items: SharedFile[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export type PdfFile = SharedFile
 
 export interface ApiError {

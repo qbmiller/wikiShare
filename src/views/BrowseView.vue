@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { BookOpen, FileText, Folder } from 'lucide-vue-next'
 import { api } from '@/api'
 import { formatDate } from '@/date'
-import type { Folder as FolderItem, SharedFile } from '@/types'
+import type { Folder as FolderItem, PaginatedFiles, SharedFile } from '@/types'
 
 type FolderTreeNode = FolderItem & {
   children: FolderTreeNode[]
@@ -13,9 +13,14 @@ type FolderTreeNode = FolderItem & {
 const router = useRouter()
 const folders = ref<FolderItem[]>([])
 const files = ref<SharedFile[]>([])
+const totalFiles = ref(0)
+const filePage = ref(1)
+const filePageSize = 30
+const fileQuery = ref('')
 const selectedFolderId = ref('')
 const loadingFiles = ref(false)
 const error = ref('')
+let fileQueryTimer: number | null = null
 
 const selectedFolder = computed(() => folders.value.find((folder) => folder.id === selectedFolderId.value) ?? null)
 const folderTree = computed(() => {
@@ -45,6 +50,16 @@ const folderTree = computed(() => {
 
 onMounted(loadFolders)
 
+watch(fileQuery, () => {
+  if (fileQueryTimer) {
+    window.clearTimeout(fileQueryTimer)
+  }
+  fileQueryTimer = window.setTimeout(() => {
+    filePage.value = 1
+    void loadFiles()
+  }, 300)
+})
+
 async function loadFolders() {
   error.value = ''
   try {
@@ -60,15 +75,28 @@ async function loadFolders() {
 async function loadFiles() {
   if (!selectedFolderId.value) {
     files.value = []
+    totalFiles.value = 0
     return
   }
 
   loadingFiles.value = true
   error.value = ''
   try {
-    files.value = await api<SharedFile[]>(`/api/folders/${selectedFolderId.value}/files`)
+    const params = new URLSearchParams({
+      page: String(filePage.value),
+      pageSize: String(filePageSize),
+    })
+    const query = fileQuery.value.trim()
+    if (query) {
+      params.set('q', query)
+    }
+    const result = await api<PaginatedFiles>(`/api/folders/${selectedFolderId.value}/files?${params.toString()}`)
+    files.value = result.items
+    totalFiles.value = result.total
+    filePage.value = result.page
   } catch (err) {
     files.value = []
+    totalFiles.value = 0
     error.value = err instanceof Error ? err.message : '加载文件失败'
   } finally {
     loadingFiles.value = false
@@ -77,6 +105,17 @@ async function loadFiles() {
 
 async function selectFolder(folder: FolderItem) {
   selectedFolderId.value = folder.id
+  filePage.value = 1
+  await loadFiles()
+}
+
+async function changeFilePage(delta: number) {
+  const nextPage = filePage.value + delta
+  const lastPage = Math.max(Math.ceil(totalFiles.value / filePageSize), 1)
+  if (nextPage < 1 || nextPage > lastPage) {
+    return
+  }
+  filePage.value = nextPage
   await loadFiles()
 }
 
@@ -176,6 +215,11 @@ function formatSize(size: number): string {
           <BookOpen :size="28" />
         </div>
 
+        <div class="file-toolbar">
+          <input v-model="fileQuery" type="search" placeholder="按文件名查询" aria-label="按文件名查询" />
+          <span>{{ totalFiles }} 个文件</span>
+        </div>
+
         <div class="browse-file-grid">
           <button
             v-for="file in files"
@@ -195,8 +239,21 @@ function formatSize(size: number): string {
           </button>
         </div>
 
+        <div class="table-pagination">
+          <button class="text-button" type="button" :disabled="filePage <= 1" @click="changeFilePage(-1)">上一页</button>
+          <span>第 {{ filePage }} 页 · {{ (filePage - 1) * filePageSize + files.length }} / {{ totalFiles }}</span>
+          <button
+            class="text-button"
+            type="button"
+            :disabled="(filePage - 1) * filePageSize + files.length >= totalFiles"
+            @click="changeFilePage(1)"
+          >
+            下一页
+          </button>
+        </div>
+
         <p v-if="loadingFiles" class="empty-state">正在加载文件...</p>
-        <p v-else-if="selectedFolderId && files.length === 0" class="empty-state">当前目录还没有可阅读文档。</p>
+        <p v-else-if="selectedFolderId && files.length === 0" class="empty-state">{{ fileQuery.trim() ? '没有找到匹配的文件。' : '当前目录还没有可阅读文档。' }}</p>
       </section>
     </div>
   </section>

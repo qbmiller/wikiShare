@@ -387,26 +387,55 @@ app.post('/api/folders/:id/restore', async (c) => {
 
 app.get('/api/folders/:id/files', async (c) => {
   const folderId = c.req.param('id')
-  if (!(await isFolderAvailable(c.env, folderId))) {
+  const user = c.get('user')
+  const now = nowSeconds()
+  const visibleAfter = parseVisibleAfter(c.req.query('visibleAfter'), now)
+  const filterTime = user.role === 'admin' ? visibleAfter : Math.max(visibleAfter, now)
+  if (!(await isFolderAvailable(c.env, folderId, filterTime))) {
     return jsonError(c, 404, 'folder_unavailable', '文件夹不存在或不可访问。')
   }
 
-  const now = nowSeconds()
   const inheritedExpiration = await getEffectiveFolderExpiration(c.env, folderId)
-  if (inheritedExpiration != null && inheritedExpiration <= now) {
+  if (inheritedExpiration != null && inheritedExpiration <= filterTime) {
     return jsonError(c, 404, 'folder_expired', '文件夹已过期。')
   }
-  const files = await c.env.DB.prepare(
+  const query = c.req.query('q')?.trim() ?? ''
+  const page = clampInt(c.req.query('page'), 1, 1, 100000)
+  const pageSize = clampInt(c.req.query('pageSize'), 30, 1, 100)
+  const offset = (page - 1) * pageSize
+  const querySql = query ? " and name like ? escape '\\'" : ''
+  const queryParam = `%${escapeLike(query)}%`
+  const countStatement = c.env.DB.prepare(
+    `select count(*) as count from files
+     where folder_id = ?
+       and trashed_at is null
+       and deleted_at is null
+       and (expires_at is null or expires_at > ?)
+       ${querySql}`,
+  )
+  const rowsStatement = c.env.DB.prepare(
     `select * from files
      where folder_id = ?
        and trashed_at is null
        and deleted_at is null
        and (expires_at is null or expires_at > ?)
-     order by created_at desc`,
+       ${querySql}
+     order by created_at desc
+     limit ? offset ?`,
   )
-    .bind(folderId, now)
-    .all()
-  return c.json(files.results)
+  const countResult = query
+    ? await countStatement.bind(folderId, filterTime, queryParam).first<{ count: number }>()
+    : await countStatement.bind(folderId, filterTime).first<{ count: number }>()
+  const files = query
+    ? await rowsStatement.bind(folderId, filterTime, queryParam, pageSize, offset).all()
+    : await rowsStatement.bind(folderId, filterTime, pageSize, offset).all()
+
+  return c.json({
+    items: files.results,
+    total: countResult?.count ?? 0,
+    page,
+    pageSize,
+  })
 })
 
 app.post('/api/files/upload', async (c) => {
@@ -678,6 +707,14 @@ function clampInt(value: string | undefined, fallback: number, min: number, max:
     return fallback
   }
   return Math.min(Math.max(parsed, min), max)
+}
+
+function parseVisibleAfter(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback
+  }
+  return parsed
 }
 
 function escapeLike(value: string): string {

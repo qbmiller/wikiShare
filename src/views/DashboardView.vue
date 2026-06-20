@@ -1,21 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Download, Folder, FolderPlus, Plus, Upload } from 'lucide-vue-next'
 import { api } from '@/api'
 import { dateInputToEpoch, epochToDateInput, formatDate } from '@/date'
-import type { Folder as FolderItem, SharedFile } from '@/types'
+import type { Folder as FolderItem, PaginatedFiles, SharedFile } from '@/types'
 
 const router = useRouter()
 const folders = ref<FolderItem[]>([])
 const files = ref<SharedFile[]>([])
+const totalFiles = ref(0)
+const filePage = ref(1)
+const filePageSize = 30
+const fileQuery = ref('')
 const selectedFolderId = ref<string>('')
 const newFolderNameInput = ref<HTMLInputElement | null>(null)
 const newFolderName = ref('')
 const newFolderParentId = ref<string>('')
 const newFolderExpiresAt = ref('')
 const selectedFolderExpiresAt = ref('')
-const uploadFile = ref<File | null>(null)
+const uploadFiles = ref<File[]>([])
+const fileUploadInput = ref<HTMLInputElement | null>(null)
+const folderUploadInput = ref<HTMLInputElement | null>(null)
+const uploadProgress = ref<{ uploaded: number; total: number } | null>(null)
 const isUploadDragging = ref(false)
 const newMarkdownName = ref('')
 const loading = ref(false)
@@ -86,8 +93,31 @@ const folderTree = computed(() => {
 })
 
 const folderById = computed(() => new Map(folders.value.map((folder) => [folder.id, folder])))
+const uploadSelectionText = computed(() => {
+  if (uploadFiles.value.length === 0) {
+    return `支持 PDF、Markdown、图片、PPT，单个最大 ${formatSize(maxUploadBytes)}`
+  }
+
+  const totalSize = uploadFiles.value.reduce((total, file) => total + file.size, 0)
+  if (uploadFiles.value.length === 1) {
+    return `已选择：${uploadFileDisplayName(uploadFiles.value[0])}（${formatSize(totalSize)}）`
+  }
+
+  return `已选择 ${uploadFiles.value.length} 个文件，合计 ${formatSize(totalSize)}，将逐个上传`
+})
+let fileQueryTimer: number | null = null
 
 onMounted(loadFolders)
+
+watch(fileQuery, () => {
+  if (fileQueryTimer) {
+    window.clearTimeout(fileQueryTimer)
+  }
+  fileQueryTimer = window.setTimeout(() => {
+    filePage.value = 1
+    void loadFiles()
+  }, 300)
+})
 
 async function loadFolders() {
   error.value = ''
@@ -102,9 +132,22 @@ async function loadFolders() {
 async function loadFiles() {
   if (!selectedFolderId.value) {
     files.value = []
+    totalFiles.value = 0
     return
   }
-  files.value = await api<SharedFile[]>(`/api/folders/${selectedFolderId.value}/files`)
+  const params = new URLSearchParams({
+    page: String(filePage.value),
+    pageSize: String(filePageSize),
+    visibleAfter: '0',
+  })
+  const query = fileQuery.value.trim()
+  if (query) {
+    params.set('q', query)
+  }
+  const result = await api<PaginatedFiles>(`/api/folders/${selectedFolderId.value}/files?${params.toString()}`)
+  files.value = result.items
+  totalFiles.value = result.total
+  filePage.value = result.page
 }
 
 async function createFolder() {
@@ -185,31 +228,44 @@ async function updateFileExpiration(file: SharedFile, event: Event) {
 }
 
 async function upload() {
-  if (!selectedFolderId.value || !uploadFile.value) {
-    return
-  }
-  if (uploadFile.value.size > maxUploadBytes) {
-    error.value = `单个文件不能超过 ${formatSize(maxUploadBytes)}。`
+  if (!selectedFolderId.value || uploadFiles.value.length === 0) {
     return
   }
 
-  const form = new FormData()
-  form.set('folderId', selectedFolderId.value)
-  form.set('file', uploadFile.value)
+  const oversizedFile = uploadFiles.value.find((file) => file.size > maxUploadBytes)
+  if (oversizedFile) {
+    error.value = `${uploadFileDisplayName(oversizedFile)} 超过 ${formatSize(maxUploadBytes)}，请移除后再上传。`
+    return
+  }
+
   loading.value = true
   error.value = ''
+  uploadProgress.value = { uploaded: 0, total: uploadFiles.value.length }
   try {
-    await api('/api/files/upload', {
-      method: 'POST',
-      body: form,
-      headers: {},
-    })
-    uploadFile.value = null
+    for (const file of uploadFiles.value) {
+      const form = new FormData()
+      form.set('folderId', selectedFolderId.value)
+      form.set('file', file)
+      await api('/api/files/upload', {
+        method: 'POST',
+        body: form,
+        headers: {},
+      })
+      if (uploadProgress.value) {
+        uploadProgress.value.uploaded += 1
+      }
+    }
+
+    clearUploadSelection()
     await loadFiles()
+    await loadFolders()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '上传失败'
+    const current = uploadFiles.value[uploadProgress.value?.uploaded ?? 0]
+    const prefix = current ? `${uploadFileDisplayName(current)} 上传失败：` : ''
+    error.value = `${prefix}${err instanceof Error ? err.message : '上传失败'}`
   } finally {
     loading.value = false
+    uploadProgress.value = null
   }
 }
 
@@ -270,14 +326,42 @@ function formatSize(size: number): string {
 
 function setUpload(event: Event) {
   const input = event.target as HTMLInputElement
-  setUploadFile(input.files?.[0] ?? null)
+  setUploadFiles(input.files ? Array.from(input.files) : [])
 }
 
-function setUploadFile(file: File | null) {
-  uploadFile.value = file
-  if (uploadFile.value && uploadFile.value.size > maxUploadBytes) {
-    error.value = `单个文件不能超过 ${formatSize(maxUploadBytes)}。`
+function setUploadFiles(files: File[]) {
+  uploadFiles.value = files
+    .filter((file) => file.name)
+    .sort((left, right) => uploadFileDisplayName(left).localeCompare(uploadFileDisplayName(right), 'zh-Hans-CN'))
+  uploadProgress.value = null
+
+  if (fileUploadInput.value) {
+    fileUploadInput.value.value = ''
   }
+  if (folderUploadInput.value) {
+    folderUploadInput.value.value = ''
+  }
+
+  const oversizedFile = uploadFiles.value.find((file) => file.size > maxUploadBytes)
+  if (oversizedFile) {
+    error.value = `${uploadFileDisplayName(oversizedFile)} 超过 ${formatSize(maxUploadBytes)}。`
+  } else {
+    error.value = ''
+  }
+}
+
+function clearUploadSelection() {
+  uploadFiles.value = []
+  if (fileUploadInput.value) {
+    fileUploadInput.value.value = ''
+  }
+  if (folderUploadInput.value) {
+    folderUploadInput.value.value = ''
+  }
+}
+
+function uploadFileDisplayName(file: File): string {
+  return file.webkitRelativePath || file.name
 }
 
 function dragOverUpload(event: DragEvent) {
@@ -291,15 +375,15 @@ function dragOverUpload(event: DragEvent) {
 async function dropUpload(event: DragEvent) {
   event.preventDefault()
   isUploadDragging.value = false
-  const file = event.dataTransfer?.files?.[0] ?? null
-  if (!file) {
+  const droppedFiles = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : []
+  if (droppedFiles.length === 0) {
     return
   }
   if (!selectedFolderId.value) {
     error.value = '请先选择目标文件夹。'
     return
   }
-  setUploadFile(file)
+  setUploadFiles(droppedFiles)
   await upload()
 }
 
@@ -345,6 +429,17 @@ function openDatePicker(event: MouseEvent) {
 async function selectFolder(folder: FolderItem) {
   selectedFolderId.value = folder.id
   selectedFolderExpiresAt.value = epochToDateInput(folder.expires_at)
+  filePage.value = 1
+  await loadFiles()
+}
+
+async function changeFilePage(delta: number) {
+  const nextPage = filePage.value + delta
+  const lastPage = Math.max(Math.ceil(totalFiles.value / filePageSize), 1)
+  if (nextPage < 1 || nextPage > lastPage) {
+    return
+  }
+  filePage.value = nextPage
   await loadFiles()
 }
 
@@ -639,13 +734,27 @@ async function dropOnRoot() {
           @dragleave="isUploadDragging = false"
           @drop="dropUpload"
         >
-          <input type="file" :accept="acceptedFileTypes" @change="setUpload" />
-          <button class="primary-button" type="submit" :disabled="!selectedFolderId || !uploadFile || loading">
+          <div class="upload-pickers">
+            <label class="upload-picker">
+              <input ref="fileUploadInput" type="file" :accept="acceptedFileTypes" @change="setUpload" />
+              选择文件
+            </label>
+            <label class="upload-picker">
+              <input ref="folderUploadInput" type="file" webkitdirectory directory multiple @change="setUpload" />
+              选择文件夹
+            </label>
+          </div>
+          <button class="primary-button" type="submit" :disabled="!selectedFolderId || uploadFiles.length === 0 || loading">
             <Upload :size="16" />
-            上传文档
+            {{ uploadProgress ? `上传中 ${uploadProgress.uploaded}/${uploadProgress.total}` : '上传文档' }}
           </button>
-          <span class="upload-hint">支持 PDF、Markdown、图片、PPT，单个最大 {{ formatSize(maxUploadBytes) }}</span>
+          <span class="upload-hint">{{ uploadSelectionText }}</span>
         </form>
+
+        <div class="file-toolbar">
+          <input v-model="fileQuery" type="search" placeholder="按文件名查询" aria-label="按文件名查询" />
+          <span>{{ totalFiles }} 个文件</span>
+        </div>
 
         <div class="file-table">
           <div class="file-table-head">
@@ -655,7 +764,7 @@ async function dropOnRoot() {
             <span>操作</span>
           </div>
           <div v-for="file in files" :key="file.id" class="file-row">
-            <span>{{ file.name }}</span>
+            <span :title="file.name">{{ file.name }}</span>
             <span>{{ formatFileKind(file) }} · {{ formatSize(file.size) }}</span>
             <input
               class="table-input"
@@ -675,7 +784,19 @@ async function dropOnRoot() {
               <button class="text-button danger-text" type="button" @click="trashFile(file)">回收</button>
             </div>
           </div>
-          <p v-if="selectedFolderId && files.length === 0" class="empty-state">当前文件夹还没有可阅读文档。</p>
+          <div class="table-pagination">
+            <button class="text-button" type="button" :disabled="filePage <= 1" @click="changeFilePage(-1)">上一页</button>
+            <span>第 {{ filePage }} 页 · {{ (filePage - 1) * filePageSize + files.length }} / {{ totalFiles }}</span>
+            <button
+              class="text-button"
+              type="button"
+              :disabled="(filePage - 1) * filePageSize + files.length >= totalFiles"
+              @click="changeFilePage(1)"
+            >
+              下一页
+            </button>
+          </div>
+          <p v-if="selectedFolderId && files.length === 0" class="empty-state">{{ fileQuery.trim() ? '没有找到匹配的文件。' : '当前文件夹还没有可阅读文档。' }}</p>
         </div>
       </section>
     </div>

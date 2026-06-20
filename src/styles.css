@@ -234,6 +234,10 @@ h2 {
   gap: 22px;
 }
 
+.folder-panel {
+  align-content: start;
+}
+
 .browse-header {
   align-items: flex-end;
   max-width: 1180px;
@@ -412,20 +416,72 @@ h2 {
 }
 
 .upload-hint {
+  min-width: 0;
   align-self: center;
   color: var(--docs-muted);
   font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .upload-bar {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
   border: 1px dashed transparent;
   border-radius: 8px;
   padding: 10px;
 }
 
+.upload-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.upload-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--docs-border);
+  border-radius: 6px;
+  background: var(--docs-surface);
+  color: var(--docs-text);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.upload-picker input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
 .upload-bar-dragging {
   border-color: var(--docs-accent);
   background: var(--docs-accent-soft);
+}
+
+.file-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 360px) auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.file-toolbar span {
+  color: var(--docs-muted);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .user-form {
@@ -717,6 +773,12 @@ textarea {
   align-items: center;
 }
 
+.file-panel .file-table-head,
+.file-panel .file-row {
+  grid-template-columns: minmax(0, 1fr) 120px 170px 180px;
+  gap: 14px;
+}
+
 .user-row,
 .user-form + .panel .file-table-head {
   grid-template-columns: minmax(140px, 1fr) 120px 150px 90px 150px 240px;
@@ -727,9 +789,31 @@ textarea {
   border-top: 1px solid var(--docs-border);
 }
 
+.file-row > span {
+  min-width: 0;
+}
+
 .file-row span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-row span:nth-child(2) {
+  color: var(--docs-text);
+  white-space: nowrap;
+}
+
+.file-panel .row-actions {
+  min-width: 0;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.file-panel .row-actions .text-button {
+  min-height: 32px;
+  padding: 0 6px;
   white-space: nowrap;
 }
 
