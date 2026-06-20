@@ -18,3 +18,11 @@ declare module '@vue-office/pptx/lib/v3/index.js' {
   const component: Component
   export default component
 }
+
+declare module '@vue-office/pdf/lib/v3/index.js' {
+  import type { Component } from 'vue'
+
+  const component: Component
+  export default component
+}
+
