@@ -1,4 +1,5 @@
 const encoder = new TextEncoder()
+const passwordPbkdf2Iterations = 100000
 
 export function nowSeconds(): number {
   return Math.floor(Date.now() / 1000)
@@ -22,30 +23,31 @@ export async function sha256Hex(input: string | BufferSource): Promise<string> {
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16))
-  const hash = await derivePassword(password, salt)
-  return `pbkdf2$310000$${base64Url(salt)}$${base64Url(hash)}`
+  const hash = await derivePassword(password, salt, passwordPbkdf2Iterations)
+  return `pbkdf2$${passwordPbkdf2Iterations}$${base64Url(salt)}$${base64Url(hash)}`
 }
 
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [scheme, rounds, saltValue, hashValue] = stored.split('$')
-  if (scheme !== 'pbkdf2' || rounds !== '310000' || !saltValue || !hashValue) {
+  const iterations = Number.parseInt(rounds ?? '', 10)
+  if (scheme !== 'pbkdf2' || !Number.isInteger(iterations) || iterations < 1 || iterations > passwordPbkdf2Iterations || !saltValue || !hashValue) {
     return false
   }
 
   const salt = base64UrlDecode(saltValue)
   const expected = base64UrlDecode(hashValue)
-  const actual = await derivePassword(password, salt)
+  const actual = await derivePassword(password, salt, iterations)
   return timingSafeEqual(actual, expected)
 }
 
-async function derivePassword(password: string, salt: Uint8Array): Promise<Uint8Array> {
+async function derivePassword(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'])
   const bits = await crypto.subtle.deriveBits(
     {
       name: 'PBKDF2',
       hash: 'SHA-256',
       salt: copyToArrayBuffer(salt),
-      iterations: 310000,
+      iterations,
     },
     key,
     256,

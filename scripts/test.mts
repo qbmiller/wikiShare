@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { dateInputToEpoch, epochToDateInput } from '../src/date.js'
+import { hashPassword, verifyPassword } from '../src/worker/crypto.js'
 import { filterVisibleFolders, getEffectiveFolderExpiration, isFileReadable, isFolderAvailable } from '../src/worker/db.js'
 import { getMaxUploadBytes, restoreFolderTree, trashFolderTree } from '../src/worker/index.js'
 import { parseRange } from '../src/worker/range.js'
@@ -22,6 +23,11 @@ assert.equal(epochToDateInput(null), '')
 assert.equal(getMaxUploadBytes({}), 100 * 1024 * 1024)
 assert.equal(getMaxUploadBytes({ MAX_UPLOAD_BYTES: '1024' }), 1024)
 assert.equal(getMaxUploadBytes({ MAX_UPLOAD_BYTES: '-1' }), 100 * 1024 * 1024)
+
+const passwordHash = await hashPassword('correct-password')
+assert.equal(passwordHash.split('$')[1], '100000')
+assert.equal(await verifyPassword('correct-password', passwordHash), true)
+assert.equal(await verifyPassword('wrong-password', passwordHash), false)
 
 const now = 1_800_000_000
 const folders = new Map<string, FolderRecord>([
