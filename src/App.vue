@@ -40,7 +40,7 @@ watch(
         <div class="brand-mark">CF</div>
         <div class="sidebar-text">
           <strong>CFShare</strong>
-          <span>PDF 在线阅读</span>
+          <span>文档在线阅读</span>
         </div>
         <button
           class="icon-button sidebar-toggle"

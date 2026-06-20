@@ -17,6 +17,12 @@ const file = ref<SharedFile | null>(null)
 const loading = ref(true)
 const error = ref('')
 const fileContentUrl = computed(() => `/api/files/${fileId.value}/content`)
+const fileMeta = computed(() => {
+  if (!file.value) {
+    return ''
+  }
+  return `${formatSize(file.value.size)} · ${file.value.mime_type}`
+})
 const readerComponent = computed(() => {
   if (!file.value) {
     return UnsupportedReader
@@ -63,6 +69,13 @@ function isDocumentFile(file: SharedFile): boolean {
 function isSpreadsheetFile(file: SharedFile): boolean {
   return file.mime_type === 'application/vnd.ms-excel' || file.mime_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 }
+
+function formatSize(size: number): string {
+  if (size < 1024 * 1024) {
+    return `${Math.max(1, Math.round(size / 1024))} KB`
+  }
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
 </script>
 
 <template>
@@ -71,6 +84,7 @@ function isSpreadsheetFile(file: SharedFile): boolean {
       <div>
         <p class="eyebrow">在线阅读</p>
         <h1>{{ file?.name ?? '文档' }}</h1>
+        <p v-if="fileMeta" class="reader-meta">{{ fileMeta }}</p>
       </div>
     </header>
 
